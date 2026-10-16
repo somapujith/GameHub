@@ -26,7 +26,7 @@ function Special({ tile, cfg }) {
     start: `Pass or land here to collect ${formatINR(c.passStart)} salary.`,
     tax: `Land here and pay ${formatINR(c.taxAmount)} in property tax.`,
     film: `Land here for a cameo and collect ${formatINR(c.filmFee)}.`,
-    jail: `Visiting is free. If you are sent here you skip a turn unless you roll doubles, pay ${formatINR(c.bailFine)} bail or use a Get-out-of-jail card.`,
+    jail: `Visiting is free. If you are sent here you skip a turn unless you roll ${cfg?.diceCount === 1 ? 'a six' : 'doubles'}, pay ${formatINR(c.bailFine)} bail or use a Get-out-of-jail card.`,
     kismet: 'Draw a Kismet card: a windfall, a challan, or something odd.',
     auction: 'A random unowned property goes under the hammer. Everyone places one sealed bid, starting at half price.',
   }[tile.type];
@@ -226,7 +226,7 @@ export default function PropertySheet({ session, tileId, onClose }) {
               {[1, 2].map((n) => (
                 <tr key={n} className={owner && ownedInSet === n ? 'is-current' : ''}>
                   <th scope="row">{n} of 2</th>
-                  <td className="r">dice {X} {UTILITY_MULT[n]}<small>about {formatINR(7 * UTILITY_MULT[n])} at a 7</small></td>
+                  <td className="r">roll {X} {UTILITY_MULT[n]}<small>{state.cfg?.diceCount === 1 ? `${formatINR(UTILITY_MULT[n])}–${formatINR(6 * UTILITY_MULT[n])} for a roll of 1–6` : `about ${formatINR(7 * UTILITY_MULT[n])} at a 7`}</small></td>
                 </tr>
               ))}
             </tbody>

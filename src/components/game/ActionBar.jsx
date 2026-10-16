@@ -50,11 +50,12 @@ export function buildActionSpec(session) {
     }
   } else if (o.roll) {
     const again = !!view.extraRoll;
+    const single = view.cfg?.diceCount === 1;
     const jailed = (mine?.jailTurns || 0) > 0 && !again;
     spec.kind = 'roll';
     spec.primary = {
-      key: 'roll', tone: 'gold', icon: 'dice', label: again ? 'Roll again' : 'Roll dice', kbd: 'Space',
-      sub: jailed ? 'Doubles to break out' : undefined, action: { type: 'ROLL' },
+      key: 'roll', tone: 'gold', icon: 'dice', label: again ? 'Roll again' : 'Roll', kbd: 'Space',
+      sub: jailed ? single ? 'Roll a 6 to break out' : 'Doubles to break out' : undefined, action: { type: 'ROLL' },
     };
     if (o.useJailCard) {
       spec.secondaries.push({ key: 'card', icon: 'ticket', label: 'Use card', amount: 'free', action: { type: 'USE_JAIL_CARD' } });
@@ -66,7 +67,7 @@ export function buildActionSpec(session) {
     } else if (o.endTurn) {
       spec.secondaries.push({ key: 'end', label: 'End turn', action: { type: 'END_TURN' } });
     }
-    spec.sr = again ? 'Doubles! Roll again' : jailed ? 'You are in jail. Roll for doubles, pay bail or use your card' : 'Your turn. Roll the dice';
+    spec.sr = again ? single ? 'Six! Roll again' : 'Doubles! Roll again' : jailed ? `You are in jail. ${single ? 'Roll a 6' : 'Roll for doubles'}, pay bail or use your card` : 'Your turn. Roll the die';
   } else if (o.endTurn) {
     spec.kind = 'end';
     spec.primary = { key: 'end', tone: 'blue', icon: 'check', label: 'End turn', kbd: 'Space', action: { type: 'END_TURN' } };
@@ -143,7 +144,7 @@ export default function ActionBar({ session, onOpenUpgrades, onOpenTrade, varian
   // phones: two labelled buttons leave no room for the Trade icon (it stays reachable in My properties)
   const secondaries = variant === 'bar' ? spec.secondaries.slice(0, 2) : spec.secondaries;
   const crowded = variant === 'bar' && secondaries.length > 1;
-  const showTrade = spec.canTrade && !!onOpenTrade && !crowded;
+  const showTrade = spec.canTrade && !!onOpenTrade && !crowded && session.view.owners?.some((owner) => owner != null);
   const showUpgradeButton = upgrades > 0 && !crowded; // still reachable via the menu / My properties
   const showSub = variant !== 'bar' || secondaries.length === 0;
   const upgradeAsIcon = showUpgradeButton && (secondaries.length > 0 || showTrade);
@@ -152,6 +153,7 @@ export default function ActionBar({ session, onOpenUpgrades, onOpenTrade, varian
     <div className="hg-actions" data-variant={variant} data-kind={spec.kind} role="group" aria-label="Actions">
       <p className="hg-sr" role="status" aria-live="polite">{spec.sr}</p>
       <div className="hg-actions-row">
+        <div className="hg-actions-extras">
         {showTrade ? (
           <Button variant="dark" className="hg-act-icon" onClick={onOpenTrade} aria-label="Propose a trade">
             <Icon name="swap" size={22} />
@@ -179,6 +181,7 @@ export default function ActionBar({ session, onOpenUpgrades, onOpenTrade, varian
             <span className="hg-badge is-inline">{upgrades}</span>
           </Button>
         ) : null}
+        </div>
 
         {primary ? (
           <Button
@@ -186,10 +189,12 @@ export default function ActionBar({ session, onOpenUpgrades, onOpenTrade, varian
             size="lg"
             className={`hg-act-primary is-${primary.key}`}
             onClick={fire(primary.action)}
+            title={primary.label}
+            aria-label={primary.amount ? `${primary.label} for ${primary.amount}` : primary.label}
           >
             <span className="hg-act-main">
               {primary.icon ? <Icon name={primary.icon} size={22} /> : null}
-              <span className="hg-act-label">{primary.label}</span>
+              <span className="hg-act-label">{variant === 'duel' && primary.key === 'buy' ? 'Buy' : primary.label}</span>
               {primary.amount ? <span className="hg-act-amount">{primary.amount}</span> : null}
             </span>
             {primary.sub && showSub ? <span className="hg-act-sub">{primary.sub}</span> : null}

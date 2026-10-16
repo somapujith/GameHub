@@ -23,7 +23,7 @@ function Dice({ a, b }) {
       {pips[n].map(([x, y], i) => <circle key={i} cx={x} cy={y} r="9" fill="#1b1340" />)}
     </svg>
   );
-  return <span className="hg-rules-dice">{face(a)}{face(b)}</span>;
+  return <span className="hg-rules-dice">{face(a)}{b ? face(b) : null}</span>;
 }
 
 function Rule({ icon, title, children, wide = false }) {
@@ -44,6 +44,7 @@ export default function RulesSheet({ open, onClose, session }) {
   const goal = session?.display?.goal ?? cfg.goal;
   const summary = settingsSummary(rawCfg, goal);
   const fairDice = (cfg.dice ?? 'lucky') === 'fair';
+  const singleDie = rawCfg.diceCount === 1;
   const declineAuction = cfg.auctionOnDecline !== false;
   const pct = (n) => `${Math.round(n * 100)}%`;
 
@@ -59,9 +60,9 @@ export default function RulesSheet({ open, onClose, session }) {
         <p className="hg-rule-round">{ROUND_RULE_TEXT}</p>
       </Rule>
 
-      <Rule icon={<Dice a={4} b={4} />} title="Roll and move">
+      <Rule icon={<Dice a={singleDie ? 6 : 4} b={singleDie ? null : 4} />} title="Roll and move">
         <p>
-          Roll two dice and walk clockwise. <b>Doubles</b> give you another roll; <b>three doubles</b> in a row send you to jail.
+          {singleDie ? <>Roll <b>one die</b> and walk 1–6 spaces clockwise. A <b>six</b> gives you another roll; <b>three sixes</b> in a row send you to jail. </> : <>Roll two dice and walk clockwise. <b>Doubles</b> give you another roll; <b>three doubles</b> in a row send you to jail. </>}
           Passing or landing on Charminar Chowk pays <b>{formatINR(cfg.passStart)}</b>.
         </p>
       </Rule>
@@ -124,7 +125,7 @@ export default function RulesSheet({ open, onClose, session }) {
 
       <Rule icon={'🚔'} title="Jail">
         <p>
-          Skip a turn unless you roll doubles, pay <b>{formatINR(cfg.bailFine)}</b> bail, or use a <b>Get-out-of-jail-free</b> Kismet card.
+          Skip a turn unless you roll {singleDie ? 'a six' : 'doubles'}, pay <b>{formatINR(cfg.bailFine)}</b> bail, or use a <b>Get-out-of-jail-free</b> Kismet card.
         </p>
       </Rule>
 

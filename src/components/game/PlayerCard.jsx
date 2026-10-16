@@ -57,12 +57,12 @@ export default function PlayerCard({
           ) : (
             <span className="hg-pc-dot is-human" title="Player" />
           )}
-          <b>{player.name}</b>
+          <b>{player.name}{isMe ? <small className="hg-pc-you"> YOU</small> : null}</b>
         </span>
         <span className="hg-pc-money">
           <Money value={player.cash} flash className="hg-pc-cash" />
           <span className="hg-pc-worth">
-            (<Money value={worth} />)
+            <Money value={worth} /> <small>worth</small>
           </span>
         </span>
         <span className="hg-pc-status">{status}</span>

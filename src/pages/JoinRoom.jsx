@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Link, Navigate, useNavigate, useParams } from 'react-router-dom';
+import { Link, Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { api, errorMessage } from '@/lib/api.js';
 import { useAuth } from '@/lib/auth.jsx';
 import CodeInput from '@/components/online/CodeInput.jsx';
@@ -13,6 +13,8 @@ import '@/styles/online.css';
  */
 export default function JoinRoom() {
   const { code: paramCode } = useParams();
+  const [params] = useSearchParams();
+  const hosting = params.get('host') === '1';
   const { user, loading } = useAuth();
   const navigate = useNavigate();
   const fromLink = !!paramCode;
@@ -47,14 +49,14 @@ export default function JoinRoom() {
 
   // validate as soon as six valid characters are in
   useEffect(() => {
-    if (loading || !user) return;
+    if (loading || !user || hosting) return;
     if (!isRoomCode(code)) {
       seq.current += 1;
       setCheck({ state: 'idle', message: '', info: null });
       return;
     }
     verify(code);
-  }, [code, loading, user, verify]);
+  }, [code, loading, user, verify, hosting]);
 
   if (loading) {
     return (
@@ -64,9 +66,11 @@ export default function JoinRoom() {
     );
   }
   if (!user) {
-    const target = isRoomCode(code) ? `/join/${code}` : '/join';
+    const target = hosting ? '/join?host=1' : isRoomCode(code) ? `/join/${code}` : '/join';
     return <Navigate to={`/login?next=${encodeURIComponent(target)}`} replace />;
   }
+
+  if (hosting) return <HostRoom />;
 
   const state = check.state;
   const uiState = state === 'checking' || state === 'joining' ? 'checking' : state === 'error' ? 'error' : 'idle';
@@ -137,8 +141,32 @@ export default function JoinRoom() {
       </section>
 
       <p className="ho-muted ho-join__alt">
-        Want to host instead? <Link to="/">Create a room from Home</Link>.
+        Want your own table? <Link to="/join?host=1">Create a private room</Link>.
       </p>
     </div>
   );
+}
+
+function HostRoom() {
+  const navigate = useNavigate();
+  const [creating, setCreating] = useState(false);
+  const [error, setError] = useState('');
+  const pending = useRef(false);
+  const create = async () => {
+    if (pending.current) return;
+    pending.current = true;
+    setCreating(true);
+    setError('');
+    try {
+      const room = await api.post('/api/rooms', {});
+      if (!room?.code) throw new Error('Your table could not be created. Try again.');
+      navigate(`/lobby/${room.code}`, { replace: true });
+    } catch (err) {
+      setError(errorMessage(err, 'Could not reach the server. Please try again.'));
+      pending.current = false;
+      setCreating(false);
+    }
+  };
+  return <div className="ho-page ho-join"><header className="ho-head"><div><span className="ho-eyebrow">Your gang. Your game.</span><h1 className="ho-h1">Set the adda, miya.</h1><p className="ho-muted">A private table for a little friendly rivalry.</p></div></header>
+    <section className="ho-card ho-host" aria-labelledby="host-heading"><span className="ho-host__art" aria-hidden="true">☕</span><h2 id="host-heading" className="ho-h2">Pull up a chair</h2><p className="ho-muted">Create your room, share the invite, and start when everyone is ready. You can add bots and adjust the game in the lobby.</p><ol className="ho-host__steps"><li>Create a private room</li><li>Share your six-character code</li><li>Roll, trade & chat together</li></ol><button type="button" className="ho-btn ho-btn--primary" disabled={creating} aria-busy={creating} onClick={create}>{creating ? 'Setting your table…' : error ? 'Try creating again' : 'Create private room'}</button>{error && <p className="ho-bad" role="alert">{error}</p>}<Link className="ho-linkbtn" to="/join">Have a code? Join a room</Link></section><Link className="ho-muted" to="/">Back to the lounge</Link></div>;
 }

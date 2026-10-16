@@ -11,10 +11,9 @@ export const TABS = [
 
 export const NAV = [
   { to: '/', label: 'Home', icon: 'home', match: ['/'], exact: true },
-  { to: '/play', label: 'Quick Play', icon: 'play', match: ['/play'] },
-  { to: '/campaign', label: 'Story Mode', icon: 'map', match: ['/campaign'] },
-  { to: '/leaderboard', label: 'Leaderboard', icon: 'trophy', match: ['/leaderboard'] },
+  { to: '/play', label: 'Play', icon: 'play', match: ['/play'] },
   { to: '/friends', label: 'Friends', icon: 'users', match: ['/friends', '/lobby', '/join'] },
+  { to: '/campaign', label: 'Explore', icon: 'map', match: ['/campaign', '/story'] },
 ];
 
 function useActive() {

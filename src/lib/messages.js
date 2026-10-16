@@ -87,10 +87,13 @@ function describeJail(ev, ctx) {
     const stay = `${who} ${be(ctx, ev.player)} in jail for ${plural(n, 'round')}`;
     let text = stay;
     if (ev.reason === 'three_doubles') text = `Three doubles in a row! ${stay}`;
+    else if (ev.reason === 'three_sixes') text = `Three sixes in a row! ${stay}`;
     else if (ev.reason === 'card') text = `Kismet strikes! ${stay}`;
     return { text, tone: toneFor(ctx, ev.player, 'bad', 'warn'), tile: 14, icon: '🚔' };
   }
   switch (ev.reason) {
+    case 'six':
+      return { text: `${who} rolled a six and broke out of jail`, tone: toneFor(ctx, ev.player, 'good'), icon: '🔓' };
     case 'doubles':
       return { text: `${who} rolled doubles and broke out of jail`, tone: toneFor(ctx, ev.player, 'good'), icon: '🔓' };
     case 'bail':
@@ -180,10 +183,12 @@ export function describeEvent(ev, ctx) {
     switch (ev.type) {
       case 'dice': {
         const [a, b] = ev.values || [];
-        const dbl = a === b;
+        const single = ev.values?.length === 1;
+        const dbl = !single && a === b;
+        const six = single && a === 6;
         const d = {
-          text: `${playerName(ctx, ev.player)} rolled ${a} + ${b}${dbl ? ': doubles!' : ''}`,
-          tone: dbl ? toneFor(ctx, ev.player, 'good') : 'info',
+          text: single ? `${playerName(ctx, ev.player)} rolled ${a}${six ? ': six!' : ''}` : `${playerName(ctx, ev.player)} rolled ${a} + ${b}${dbl ? ': doubles!' : ''}`,
+          tone: dbl || six ? toneFor(ctx, ev.player, 'good') : 'info',
           icon: '🎲',
         };
         // A second, log-only line when the lucky-dice rules helped the local player.

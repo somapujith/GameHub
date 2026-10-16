@@ -11,7 +11,7 @@ import {
 const ids = ['p0', 'p1', 'p2', 'p3'];
 const mkPlayers = (n, bots = []) => Array.from({ length: n }, (_, i) => ({ id: ids[i], name: `P${i}`, avatar: i, isBot: bots.includes(i) }));
 const game = (n = 3, settings = {}, bots = [], seed = 7) =>
-  createGame({ players: mkPlayers(n, bots), seed, settings: { debug: true, auctionOnDecline: false, ...settings } });
+  createGame({ players: mkPlayers(n, bots), seed, settings: { debug: true, diceCount: 2, auctionOnDecline: false, ...settings } });
 const edit = (s, fn) => {
   const c = structuredClone(s);
   fn(c);

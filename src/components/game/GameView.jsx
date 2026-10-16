@@ -1,7 +1,7 @@
 // The whole game screen. Depends ONLY on the `session` interface (docs/CONTRACT.md section 6).
 //   mobile: top bar, board, player strip, log drawer, action bar, chat bar (stacked)
 //   >= 900px: board left, sidebar right (players, actions, log, quick chat, my properties)
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { formatINR } from '@shared/format.js';
 import { sfx } from '@/lib/sfx.js';
 import Board from './Board.jsx';
@@ -10,13 +10,12 @@ import PlayerSheet from './PlayerSheet.jsx';
 import ActionBar from './ActionBar.jsx';
 import PropertySheet from './PropertySheet.jsx';
 import AuctionSheet from './AuctionSheet.jsx';
-import LogPanel, { LogSheet } from './LogPanel.jsx';
+import { LogSheet } from './LogPanel.jsx';
 import EmoteBar from './EmoteBar.jsx';
-import VoiceToast from './VoiceToast.jsx';
 import GameOverModal from './GameOverModal.jsx';
 import MenuSheet from './MenuSheet.jsx';
 import RulesSheet from './RulesSheet.jsx';
-import MyProperties, { MyPropertiesStrip } from './MyProperties.jsx';
+import MyProperties from './MyProperties.jsx';
 import TradeSheet from './TradeSheet.jsx';
 import DebtSheet from './DebtSheet.jsx';
 import SetCelebration from './SetCelebration.jsx';
@@ -25,8 +24,6 @@ import Icon from './ui/Icon.jsx';
 import Pill from './ui/Pill.jsx';
 import { roundInfo, useIsWide, useReducedMotion } from './ui/helpers.js';
 import '../../styles/game.css';
-
-const TOAST_BAND = 112; // px: compact toast height + breathing room
 
 function TopBar({ session, onBack, onMenu }) {
   const goal = session.display?.goal ?? session.view?.cfg?.goal ?? 0;
@@ -37,6 +34,7 @@ function TopBar({ session, onBack, onMenu }) {
         <Icon name="back" size={24} strokeWidth={2.4} />
       </button>
       <div className="hg-top-mid">
+        <span className="hg-table-title">HYDERABAD TYCOON <i>THE CITY IS YOURS</i></span>
         <p className="hg-goal">
           <b>{formatINR(goal)}</b> net worth to win
         </p>
@@ -83,8 +81,6 @@ export default function GameView({ session, onExit, rewards }) {
   const [logOpen, setLogOpen] = useState(false);
   const [confirm, setConfirm] = useState(false);
   const unlocked = useRef(false);
-  const belowRef = useRef(null);
-  const [band, setBand] = useState(false);
 
   const openTile = useCallback((id) => setTileId(id), []);
   const closeTile = useCallback(() => setTileId(null), []);
@@ -106,27 +102,6 @@ export default function GameView({ session, onExit, rewards }) {
     };
   }, []);
 
-  /* Phones: the voice toast needs a free band between the board and the player strip. Measure the spare
-     height the strip area gets; when it is big enough the toast lives there, otherwise it sits just above
-     the action bar. It never overlays the board. */
-  useLayoutEffect(() => {
-    const el = belowRef.current;
-    if (!el) return undefined;
-    const measure = () => {
-      const wrap = el.querySelector('.hg-strip-wrap');
-      const strip = wrap && wrap.firstElementChild;
-      if (!wrap || !strip) return;
-      setBand(wrap.offsetHeight - strip.offsetHeight >= TOAST_BAND);
-    };
-    measure();
-    if (typeof ResizeObserver === 'undefined') return undefined;
-    const ro = new ResizeObserver(measure);
-    ro.observe(el);
-    const wrap = el.querySelector('.hg-strip-wrap');
-    if (wrap) { ro.observe(wrap); if (wrap.firstElementChild) ro.observe(wrap.firstElementChild); }
-    return () => ro.disconnect();
-  }, [wide]);
-
   if (!session?.view || !session?.display) {
     return (
       <div className="hg-game hg-game--loading" role="status">
@@ -142,10 +117,16 @@ export default function GameView({ session, onExit, rewards }) {
     </>
   );
   const n = session.display.players?.length || 2;
+  const playersAndAction = (
+    <PlayerStrip session={session} onSelect={setPlayerId} action={
+      <ActionBar session={session} variant="duel" onOpenUpgrades={openMine} onOpenTrade={openTrade} />
+    } />
+  );
 
   return (
     <div
-      className="hg-game"
+      className="hg-game hg-game--minimal"
+      data-mode={session.mode}
       data-wide={wide ? '' : undefined}
       data-n={n}
       data-rm={reduced ? '' : undefined}
@@ -153,34 +134,11 @@ export default function GameView({ session, onExit, rewards }) {
       <h1 className="hg-sr">Hyderabad Tycoon</h1>
       <TopBar session={session} onBack={() => setConfirm(true)} onMenu={() => setMenu(true)} />
 
-      {wide ? (
-        <div className="hg-main hg-main--wide">
-          <div className="hg-boardcol">
-            <div className="hg-boardwrap">{board}</div>
-          </div>
-          <aside className="hg-side" aria-label="Game panel">
-            <PlayerStrip session={session} variant="list" onSelect={setPlayerId} />
-            <ActionBar session={session} variant="panel" onOpenUpgrades={openMine} onOpenTrade={openTrade} />
-            <div className="hg-logslot">
-              <VoiceToast />
-              <LogPanel session={session} variant="panel" />
-            </div>
-            <EmoteBar session={session} variant="panel" />
-            <MyPropertiesStrip session={session} onOpenTile={openTile} onManage={openMine} />
-          </aside>
-        </div>
-      ) : (
-        <div className="hg-main hg-main--stack">
-          <div className="hg-boardwrap">{board}</div>
-          <div className="hg-below" ref={belowRef} data-toast={band ? 'band' : 'over'}>
-            <VoiceToast />
-            <PlayerStrip session={session} onSelect={setPlayerId} />
-            <LogPanel session={session} variant="drawer" />
-            <ActionBar session={session} onOpenUpgrades={openMine} onOpenTrade={openTrade} />
-          </div>
-          <EmoteBar session={session} variant="bar" />
-        </div>
-      )}
+      <main className="hg-playfield" aria-label="Game table">
+        <div className="hg-boardwrap">{board}</div>
+        <div className="hg-table-players">{playersAndAction}</div>
+        {session.mode === 'online' && <EmoteBar session={session} />}
+      </main>
 
       <PropertySheet session={session} tileId={tileId} onClose={closeTile} />
       <PlayerSheet session={session} playerId={playerId} onClose={() => setPlayerId(null)} onOpenTile={openTile} />
@@ -194,7 +152,7 @@ export default function GameView({ session, onExit, rewards }) {
         onClose={() => setMenu(false)}
         onRules={() => setRules(true)}
         onProperties={() => { setMenu(false); setMine(true); }}
-        onLog={wide ? undefined : () => { setMenu(false); setLogOpen(true); }}
+        onLog={() => { setMenu(false); setLogOpen(true); }}
         onQuit={() => setConfirm(true)}
       />
       <LogSheet session={session} open={logOpen} onClose={() => setLogOpen(false)} />

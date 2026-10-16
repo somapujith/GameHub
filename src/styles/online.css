@@ -5,8 +5,13 @@
    ========================================================================== */
 
 /* ---------- base ---------- */
+.ho-host { display: flex; flex-direction: column; gap: 18px; padding: 28px; }
+.ho-host__art { font-size: 44px; }
+.ho-host__steps { display: grid; gap: 12px; padding-left: 22px; margin: 0; font-size: 14px; color: var(--text-dim); }
+.ho-host__steps li::marker { color: var(--teal); font-weight: 800; }
+.ho-host .ho-linkbtn { align-self: center; color: var(--teal); font-size: 13px; padding: 6px; }
 .ho-page {
-  --ho-card-bg: linear-gradient(160deg, rgba(46, 36, 117, 0.8), rgba(29, 22, 80, 0.86));
+  --ho-card-bg: linear-gradient(145deg, var(--surface), var(--bg-1));
   width: 100%;
   max-width: 1080px;
   margin-inline: auto;
@@ -113,7 +118,7 @@
 }
 
 .ho-card {
-  background: var(--ho-card-bg, linear-gradient(160deg, rgba(46, 36, 117, 0.8), rgba(29, 22, 80, 0.86)));
+  background: var(--ho-card-bg, linear-gradient(145deg, var(--surface), var(--bg-1)));
   border: 1px solid var(--line);
   border-radius: var(--radius-l);
   padding: var(--space-4);
@@ -834,7 +839,7 @@
 }
 .ho-tag--bot {
   background: rgba(155, 123, 255, 0.22);
-  color: #c9b8ff;
+  color: var(--teal);
 }
 .ho-ready {
   display: inline-grid;
@@ -1141,7 +1146,7 @@
   text-align: center;
   border-radius: var(--radius-l);
   border: 1px solid var(--line);
-  background: linear-gradient(160deg, rgba(46, 36, 117, 0.8), rgba(29, 22, 80, 0.86));
+  background: linear-gradient(145deg, var(--surface), var(--bg-1));
   box-shadow: var(--shadow-2);
 }
 .ho-status__icon {
@@ -1212,7 +1217,7 @@
   padding: 10px 16px;
   border-radius: var(--radius-m);
   border: 1px solid var(--line-strong);
-  background: rgba(20, 15, 51, 0.96);
+  background: rgba(16, 23, 30, 0.96);
   color: var(--text);
   font: 600 0.92rem/1.35 var(--font-body);
   text-align: left;
@@ -1253,7 +1258,7 @@
   padding: 10px 12px;
   border-radius: var(--radius-l);
   border: 1px solid var(--line-strong);
-  background: rgba(20, 15, 51, 0.97);
+  background: rgba(16, 23, 30, 0.97);
   color: var(--text);
   box-shadow: var(--shadow-2);
   animation: ho-drop 0.28s cubic-bezier(0.2, 0.9, 0.3, 1.2);
@@ -1357,7 +1362,7 @@
   padding: 8px 10px 8px 14px;
   border-radius: var(--radius-pill);
   border: 1px solid rgba(255, 177, 0, 0.6);
-  background: rgba(20, 15, 51, 0.97);
+  background: rgba(16, 23, 30, 0.97);
   color: var(--cream);
   font-size: 0.85rem;
   box-shadow: var(--shadow-2);

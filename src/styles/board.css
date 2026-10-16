@@ -1313,6 +1313,59 @@
 
 /* ---- reduced motion ------------------------------------------------------ */
 
+/* A warm city board with the open, mint-coloured table of a social board game. */
+.hb-board { --hb-ink: #24363c; --hb-ink-dim: #4c6266; font-family: var(--font-body, 'Segoe UI', sans-serif); }
+.hb-frame {
+  padding: .7cqw; border-radius: 2.3cqw; background: #f0ede1;
+  box-shadow: 0 .8cqw 0 #667f7c, 0 2cqw 4cqw #0005;
+}
+.hb-frame__sheen { box-shadow: inset 0 0 0 .2cqw #fff9; }
+.hb-tile--bl { border-bottom-left-radius: 1.7cqw; }
+.hb-tile--br { border-bottom-right-radius: 1.7cqw; }
+.hb-tile--tr { border-top-right-radius: 1.7cqw; }
+.hb-tile--tl { border-top-left-radius: 1.7cqw; }
+.hb-tile { --hb-bg: #f4f0e4; --tag-fs: max(2.1cqw, 8px); --head-h: max(3.8cqw, 17px); box-shadow: inset 0 0 0 .16cqw #ffffffb3; }
+.hb-tile__head { box-shadow: inset 0 -1px 0 #0002; }
+.hb-tile__price { padding: 0 .4em; font-size: max(2.1cqw, 8px); border-radius: .7cqw; font-weight: 750; text-shadow: none; }
+.hb-tile__name { padding: 0; margin: 0; top: 0; font-size: var(--fs, 2.15cqw); font-weight: 700; letter-spacing: -.025em; line-height: 1.15; }
+.hb-tile__body { padding: .5cqw .3cqw .7cqw; }
+.hb-tile.is-multi .hb-tile__name { font-size: min(var(--fs, 2.15cqw), 2.15cqw); }
+.hb-pill { padding: 0 .5em; height: 1.55em; font-size: max(1.7cqw, 7px); letter-spacing: .015em; box-shadow: none; }
+.hb-stage { padding: 1.1cqw; background: #f4f0e4; }
+.hb-stage__panel {
+  border-radius: 1.8cqw;
+  background: radial-gradient(ellipse at 50% 38%, #d7e9dd, #bad7cf);
+  box-shadow: inset 0 0 0 .22cqw #ffffff8f;
+}
+.hb-stage__panel::before {
+  content: ''; position: absolute; inset: 0; pointer-events: none; opacity: .2;
+  background-image: radial-gradient(#35665a 1px, transparent 1px); background-size: 4cqw 4cqw;
+  mask-image: radial-gradient(ellipse at center, transparent 25%, #000 100%);
+}
+.hb-stage__inner { padding: 3.8cqw 4.5cqw 3cqw; gap: 2cqw; }
+.hb-stage__top { height: 6.5cqw; }
+.hb-turn { background: #ffffff85; box-shadow: none; padding: 1.1cqw 1.8cqw; gap: 1.1cqw; }
+.hb-turn__name { font-size: 3.1cqw; line-height: 1.2; padding: 0; margin: 0; font-weight: 650; }
+.hb-turn__chip { height: 4cqw; padding: 0 1.2cqw; background: #2a6960; font-size: 2.2cqw; font-weight: 650; }
+.hb-turn__dot { width: 2.1cqw; height: 2.1cqw; box-shadow: 0 0 0 .4cqw #fff; }
+.hb-round { font-size: 2.8cqw; padding: 1.4cqw 1.8cqw; background: transparent; box-shadow: none; color: #46655e; font-weight: 600; }
+.hb-round.is-final { background: #ffca7a; color: #593e18; animation: none; }
+.hb-bubble-slot { min-height: 14.5cqw; margin-top: 1cqw; }
+.hb-bubble { min-height: 11.8cqw; border-radius: 2.5cqw; padding: 2cqw 3cqw; box-shadow: 0 .5cqw .4cqw #36534e29, inset 0 -.4cqw 0 var(--tone); background: #fffcf4; }
+.hb-bubble::after { background: #fffcf4; filter: none; }
+.hb-bubble__text { font-size: 3.7cqw; line-height: 1.25; padding: 0; margin: 0; font-weight: 550; letter-spacing: -.025em; }
+.hb-bubble--info { --tone: #58ad9c; }
+.hb-bubble--cheer { --tone: #d6a25e; }
+.hb-bubble--info .hb-bubble__you { color: #286b61; }
+.hb-art { margin-top: 1cqw; }
+.hb-art__box { animation: none; }
+.hb-art__caption { font-size: 2.4cqw; padding: 1cqw 2.4cqw; background: #2d5e55d9; letter-spacing: .025em; font-weight: 600; bottom: -1cqw; }
+.hb-stage__dice { height: 22cqw; margin-top: 1.3cqw; }
+.hb-odds-btn { width: 11cqw; height: 11cqw; border-radius: 2.5cqw; background: #ffffff70; color: #4a7167; box-shadow: inset 0 0 0 .2cqw #ffffffa3; }
+.hb-odds-btn__txt { font-size: 2.4cqw; }
+.hb-odds-btn__ico { height: 3.8cqw; }
+.hb-lucky { font-size: 2.4cqw; padding: 1.2cqw 1.4cqw; background: #e7f1d9; box-shadow: none; color: #446147; }
+
 @media (prefers-reduced-motion: reduce) {
   .hb-board *,
   .hb-board *::before,

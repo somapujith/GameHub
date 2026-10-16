@@ -746,6 +746,7 @@ describe('rules v2: trades and debts', () => {
     const r = h.room.room;
     const st = r.state;
     st.cfg.debug = true; // test-only: lets the harness force the dice (the real server never sets it)
+    st.cfg.diceCount = 2; // This debt fixture exercises the original two-die saved-game rules.
     st.turn = st.players.findIndex((p) => p.id === U(1));
     const me = st.players[st.turn];
     me.cash = 300;
@@ -854,6 +855,7 @@ describe('debt phase: the debtor acts even when it is not their turn', () => {
     await h.say(a, { t: 'start' });
     const st = h.room.room.state;
     st.cfg.debug = true; // test-only: lets the harness force the dice
+    st.cfg.diceCount = 2; // This debt fixture exercises the original two-die saved-game rules.
     st.turn = st.players.findIndex((p) => p.id === U(1));
     st.players[st.turn].cash = 300;
     st.players[st.turn].pos = 12;

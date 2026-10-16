@@ -1,162 +1,35 @@
-import { useRef, useState } from 'react';
+﻿import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Scene } from '@/components/art/index.js';
 import { Icon } from '../icons.jsx';
 import { apiPost } from '../net.js';
 import { useAccount } from '../hooks.js';
-import { useToast } from '../Toast.jsx';
 
-const ROOM_CODE = /^[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{6}$/;
-
-/** The four big entry points: Quick Play, Story Mode, Create Room, Join with code. */
 export default function QuickActions() {
   const navigate = useNavigate();
-  const toast = useToast();
   const { signedIn, loading } = useAccount();
   const [creating, setCreating] = useState(false);
-  const [joinOpen, setJoinOpen] = useState(false);
-  const [code, setCode] = useState('');
-  const [err, setErr] = useState('');
-  const input = useRef(null);
-
-  const toLogin = (next) => navigate(`/login?next=${encodeURIComponent(next)}`);
-
-  const createRoom = async () => {
+  const [error, setError] = useState('');
+  const create = async () => {
     if (creating || loading) return;
-    if (!signedIn) return toLogin('/');
-    setCreating(true);
+    if (!signedIn) return navigate('/login?next=%2Fjoin%3Fhost%3D1');
+    setCreating(true); setError('');
     try {
-      const res = await apiPost('/api/rooms', {});
-      if (!res?.code) throw new Error('No room code returned');
-      navigate(`/lobby/${res.code}`);
+      const room = await apiPost('/api/rooms', {});
+      if (!room?.code) throw new Error('The room could not be created. Please try again.');
+      navigate(`/lobby/${room.code}`);
     } catch (e) {
-      toast(e?.status ? e.message || 'Could not create a room.' : 'Cannot reach the server. Online rooms need a connection.', { tone: 'bad' });
+      setError(e?.status ? e.message : 'Online rooms need a connection. Try again, or play a duel offline.');
       setCreating(false);
     }
   };
-
-  const openJoin = () => {
-    if (loading) return;
-    if (!signedIn) return toLogin('/join');
-    setJoinOpen((o) => {
-      if (!o) setTimeout(() => input.current?.focus(), 60);
-      return !o;
-    });
-    setErr('');
-  };
-
-  const submitJoin = (e) => {
-    e.preventDefault();
-    if (!ROOM_CODE.test(code)) {
-      setErr('Room codes have 6 characters: letters A–Z and digits 2–9.');
-      input.current?.focus();
-      return;
-    }
-    navigate(`/lobby/${code}`);
-  };
-
   return (
-    <section className="hh-actions" aria-label="Play">
-      <Link to="/play" className="hh-act hh-act--play">
-        <span className="hh-act__scene" aria-hidden="true">
-          <Scene name="banjara" />
-        </span>
-        <span className="hh-act__shade" aria-hidden="true" />
-        <span className="hh-act__body">
-          <span className="hh-act__icon">
-            <Icon name="dice" size={26} />
-          </span>
-          <span className="hh-act__title">Quick Play</span>
-          <span className="hh-act__sub">Vs bots · 2–4 players</span>
-        </span>
-        <Icon name="chevR" size={22} className="hh-act__go" />
-      </Link>
-
-      <Link to="/campaign" className="hh-act hh-act--story">
-        <span className="hh-act__scene" aria-hidden="true">
-          <Scene name="golconda" />
-        </span>
-        <span className="hh-act__shade" aria-hidden="true" />
-        <span className="hh-act__body">
-          <span className="hh-act__icon">
-            <Icon name="map" size={26} />
-          </span>
-          <span className="hh-act__title">Story Mode</span>
-          <span className="hh-act__sub">5 chapters · earn rewards</span>
-        </span>
-        <Icon name="chevR" size={22} className="hh-act__go" />
-      </Link>
-
-      <button type="button" className="hh-act hh-act--room" onClick={createRoom} disabled={creating || loading} aria-busy={creating}>
-        <span className="hh-act__body hh-act__body--row">
-          <span className="hh-act__icon">{creating ? <span className="hh-spinner" aria-hidden="true" /> : <Icon name="users" size={24} />}</span>
-          <span className="hh-act__text">
-            <span className="hh-act__title">{creating ? 'Creating…' : 'Create Room'}</span>
-            <span className="hh-act__sub">{signedIn ? 'Invite friends' : 'Sign in to host'}</span>
-          </span>
-        </span>
-      </button>
-
-      <button
-        type="button"
-        className={`hh-act hh-act--join ${joinOpen ? 'is-open' : ''}`}
-        onClick={openJoin}
-        disabled={loading}
-        aria-expanded={signedIn ? joinOpen : undefined}
-        aria-controls="hh-join-form"
-      >
-        <span className="hh-act__body hh-act__body--row">
-          <span className="hh-act__icon">
-            <Icon name="key" size={24} />
-          </span>
-          <span className="hh-act__text">
-            <span className="hh-act__title">Join with Code</span>
-            <span className="hh-act__sub">{signedIn ? 'Enter 6 characters' : 'Sign in to join'}</span>
-          </span>
-        </span>
-      </button>
-
-      {signedIn && (
-        <div id="hh-join-form" className={`hh-collapse hh-join ${joinOpen ? 'is-open' : ''}`}>
-          <div className="hh-collapse__inner" inert={!joinOpen}>
-            <form className="hh-join__form" onSubmit={submitJoin} noValidate>
-              <div className="hh-field">
-                <label className="hh-field__label" htmlFor="hh-join-code">
-                  Room code
-                </label>
-                <div className="hh-join__row">
-                  <input
-                    ref={input}
-                    id="hh-join-code"
-                    className="hh-input hh-input--code"
-                    value={code}
-                    placeholder="ABC234"
-                    autoComplete="off"
-                    autoCapitalize="characters"
-                    autoCorrect="off"
-                    spellCheck={false}
-                    inputMode="text"
-                    aria-invalid={!!err}
-                    aria-describedby={err ? 'hh-join-err' : undefined}
-                    onChange={(e) => {
-                      setCode(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 6));
-                      setErr('');
-                    }}
-                  />
-                  <button type="submit" className="btn btn--primary" disabled={code.length < 6}>
-                    Join <Icon name="chevR" size={18} />
-                  </button>
-                </div>
-              </div>
-              {err && (
-                <p id="hh-join-err" className="hh-join__err" role="alert">
-                  {err}
-                </p>
-              )}
-            </form>
-          </div>
-        </div>
-      )}
+    <section className="hh-social-play" aria-labelledby="social-play-title">
+      <div className="hh-section-heading"><h2 id="social-play-title">Better with your people</h2><span>A little competition. A lot of bakbak.</span></div>
+      <div className="hh-social-play__grid">
+        <button type="button" className="hh-social-action" onClick={create} disabled={creating || loading} aria-busy={creating}><span className="hh-social-action__icon"><Icon name="users" size={24} /></span><span><b>{creating ? 'Setting your table…' : 'Invite your gang'}</b><small>Create a private room & share a code</small></span><Icon name="chevR" size={19} /></button>
+        <Link to="/join" className="hh-social-action"><span className="hh-social-action__icon hh-social-action__icon--gold"><Icon name="key" size={24} /></span><span><b>Got a room code?</b><small>Pull up a chair. Your friends are waiting.</small></span><Icon name="chevR" size={19} /></Link>
+      </div>
+      {error && <p className="hh-social-play__error" role="alert">{error} <button type="button" onClick={create}>Retry</button></p>}
     </section>
   );
 }

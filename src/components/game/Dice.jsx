@@ -1,6 +1,7 @@
 import { memo, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { sfx } from '@/lib/sfx.js';
+import { useReducedMotion } from './ui/helpers.js';
 import '@/styles/board.css';
+import '@/styles/dice.css';
 
 // pip cells on a 3x3 grid as [row, col]
 const PIPS = {
@@ -49,7 +50,7 @@ function restTransform(v, index, seed) {
   return `rotateX(${vx.toFixed(1)}deg) rotateY(${vy.toFixed(1)}deg) rotateZ(${seed.tz.toFixed(1)}deg) ${ORIENT[face]}`;
 }
 
-function Die3D({ value, index, rolling, reduced }) {
+function Die3D({ value, index, rolling, reduced, settleMs = 560 }) {
   const cube = useRef(null);
   const seed = useRef(null);
   if (!seed.current) seed.current = newSeed();
@@ -81,12 +82,12 @@ function Die3D({ value, index, rolling, reduced }) {
       el.classList.remove('is-tumbling');
       if (cur && cur !== 'none') el.style.transform = cur;
       void el.offsetWidth; // flush so the transition starts from the frozen pose
-      el.style.transition = reduced ? 'none' : 'transform 560ms cubic-bezier(0.2, 1.1, 0.34, 1)';
+      el.style.transition = reduced ? 'none' : `transform ${settleMs}ms cubic-bezier(0.2, 1.1, 0.34, 1)`;
       el.style.transform = restTransform(value, index, seed.current);
       if (!reduced) {
         setLanding(true);
         clearTimeout(landTimer.current);
-        landTimer.current = setTimeout(() => setLanding(false), 700);
+        landTimer.current = setTimeout(() => setLanding(false), settleMs);
       }
     } else {
       // first paint, or the value changed without a roll animation: swap the face
@@ -94,10 +95,10 @@ function Die3D({ value, index, rolling, reduced }) {
       el.style.transform = restTransform(value, index, seed.current);
     }
     return undefined;
-  }, [rolling, value, index, reduced]);
+  }, [rolling, value, index, reduced, settleMs]);
 
   return (
-    <span className={`hb-die3d hb-die3d--${index ? 'b' : 'a'}${rolling && !reduced ? ' is-tossing' : ''}${landing ? ' is-landing' : ''}`}>
+    <span className={`hb-die3d hb-die3d--${index ? 'b' : 'a'}${rolling && !reduced ? ' is-tossing' : ''}${landing ? ' is-landing' : ''}`} style={{ '--hb-die-settle': `${settleMs}ms` }}>
       <span className="hb-die3d__shadow" />
       <span className="hb-die3d__air">
         <span className="hb-cube" ref={cube}>
@@ -112,37 +113,7 @@ function Die3D({ value, index, rolling, reduced }) {
   );
 }
 
-function usePrefersReducedMotion() {
-  const [reduced, setReduced] = useState(() => {
-    try {
-      return typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
-    } catch {
-      return false;
-    }
-  });
-  useEffect(() => {
-    if (typeof matchMedia !== 'function') return undefined;
-    const mq = matchMedia('(prefers-reduced-motion: reduce)');
-    const on = () => setReduced(mq.matches);
-    mq.addEventListener?.('change', on);
-    return () => mq.removeEventListener?.('change', on);
-  }, []);
-  return reduced;
-}
-
-function isTypingTarget(el) {
-  if (!el || !el.tagName) return false;
-  const tag = el.tagName;
-  return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || el.isContentEditable === true;
-}
-
-let lastRollAt = 0;
-
-const ASSIST_NOTE = {
-  comeback: 'Comeback boost',
-  mercy: 'Mercy rule',
-  pity: 'Doubles were due',
-};
+const ASSIST_NOTE = { comeback: 'Comeback boost', mercy: 'Mercy rule', pity: 'A bonus roll was due' };
 
 /** Small "Lucky dice 🍀" badge, shown when the game uses lucky dice (`view.cfg.dice === 'lucky'`). */
 export function LuckyBadge({ session }) {
@@ -155,111 +126,27 @@ export function LuckyBadge({ session }) {
   );
 }
 
-/**
- * Two 3D dice. Shows `session.display.dice`; tumbles while `session.rolling` and lands exactly on the
- * values; becomes a big pulsing "Tap to roll" button while `session.options.roll`.
- * Space also rolls (not while typing, not while a dialog is open, not on a focused button).
- */
+/** A single presentational die. The roll control lives between the players. */
 export function Dice({ session }) {
-  const reduced = usePrefersReducedMotion();
+  const reduced = useReducedMotion();
   const rolling = !!session?.rolling;
-  const canRoll = !!session?.options?.roll && !session?.busy && !rolling;
-  const shown = session?.display?.dice || [0, 0];
+  const shown = session?.display?.dice || session?.view?.dice || [0];
+  const value = shown[0] || 3;
+  const legacy = shown.length > 1 && Number.isInteger(shown[1]);
   const assist = session?.display?.assist || null;
+  const total = shown.reduce((sum, n) => sum + (Number(n) || 0), 0);
+  const hint = rolling ? 'Rolling…' : total === 0 ? 'Ready to roll' : legacy ? `Moved ${total} spaces` : value === 6 ? 'Six! Kya baat hai.' : `Rolled ${value}`;
 
-  const sessionRef = useRef(session);
-  useEffect(() => {
-    sessionRef.current = session;
-  });
-
-  // "Lucky dice helped" pop: once per roll, after the dice have landed
-  const rollSeq = useRef(0);
-  const popShownFor = useRef(0);
-  const [pop, setPop] = useState(null);
-  useEffect(() => {
-    if (rolling) {
-      rollSeq.current += 1;
-      setPop(null);
-    }
-  }, [rolling]);
-  useEffect(() => {
-    if (rolling || !assist || popShownFor.current === rollSeq.current) return undefined;
-    popShownFor.current = rollSeq.current;
-    setPop({ key: rollSeq.current, assist });
-    const t = setTimeout(() => setPop(null), 2800);
-    return () => clearTimeout(t);
-  }, [rolling, assist]);
-
-  const roll = () => {
-    const s = sessionRef.current;
-    if (!s?.options?.roll || s.busy || s.rolling) return;
-    const now = Date.now();
-    if (now - lastRollAt < 400) return; // Space + click (or two listeners) must not double-roll
-    lastRollAt = now;
-    try {
-      sfx?.unlock?.();
-    } catch {
-      /* audio is optional */
-    }
-    s.dispatch?.({ type: 'ROLL' });
-  };
-
-  useEffect(() => {
-    const onKey = (e) => {
-      if (e.code !== 'Space' && e.key !== ' ') return;
-      if (e.repeat || e.defaultPrevented || e.ctrlKey || e.metaKey || e.altKey) return;
-      const s = sessionRef.current;
-      if (!s?.options?.roll || s.busy || s.rolling) return;
-      if (isTypingTarget(e.target) || isTypingTarget(document.activeElement)) return;
-      // A focused button/link already activates itself with Space.
-      if (e.target?.closest?.('button, a[href], summary, [role="button"], [role="menuitem"], [role="tab"], [role="switch"]')) return;
-      if (document.querySelector('[role=dialog]')) return;
-      e.preventDefault();
-      roll();
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, []);
-
-  const total = (shown[0] || 0) + (shown[1] || 0);
-  const doubles = shown[0] > 0 && shown[0] === shown[1];
-
-  let hint = '';
-  if (canRoll) hint = 'Tap to roll';
-  else if (rolling) hint = 'Rolling…';
-  else if (total > 0) hint = doubles ? `Doubles! ${total}` : `Rolled ${total}`;
-
-  const cls = ['hb-dice'];
-  if (canRoll) cls.push('is-ready');
-  if (rolling) cls.push('is-rolling');
-  const body = (
-    <>
-      <span className="hb-dice__row">
-        <Die3D value={shown[0]} index={0} rolling={rolling} reduced={reduced} />
-        <Die3D value={shown[1]} index={1} rolling={rolling} reduced={reduced} />
-      </span>
-      <span className={`hb-dice__hint${canRoll ? ' is-cta' : ''}`}>{hint || ' '}</span>
-      <span className="hb-sr" aria-live="polite">
-        {rolling ? 'Rolling the dice' : total > 0 ? `Dice show ${shown[0]} and ${shown[1]}` : ''}
-      </span>
-      {pop && (
-        <span className="hb-assist" key={pop.key} title={ASSIST_NOTE[pop.assist] || undefined} aria-hidden="true">
-          Lucky dice helped <span>🍀</span>
-        </span>
-      )}
-    </>
-  );
-
-  if (canRoll) {
-    return (
-      <button type="button" className={cls.join(' ')} aria-label="Roll dice" onClick={roll}>
-        {body}
-      </button>
-    );
-  }
   return (
-    <div className={cls.join(' ')} role="group" aria-label="Dice">
-      {body}
+    <div className={`hb-dice hb-dice--single${rolling ? ' is-rolling' : ''}${reduced ? ' is-reduced' : ''}`} role="group" aria-label="Single die" aria-busy={rolling}>
+      <span className="hb-dice__row" aria-hidden="true">
+        <Die3D value={value} index={0} rolling={rolling} reduced={reduced} settleMs={session?.display?.diceSettleMs ?? 560} />
+      </span>
+      <span className="hb-dice__hint" aria-hidden="true">{hint}</span>
+      <span className="hb-sr" role="status" aria-live="polite" aria-atomic="true">
+        {rolling ? 'Rolling the die' : total === 0 ? 'Die ready. Use the roll button between the players.' : legacy ? `Previous game roll: ${shown.join(' and ')}. Move ${total} spaces.` : `Die shows ${value}. Move ${value} ${value === 1 ? 'space' : 'spaces'}.`}
+      </span>
+      {assist && !rolling ? <span className="hb-dice__assist" title={ASSIST_NOTE[assist] || 'Lucky help'}>Lucky help <span aria-hidden="true">✦</span></span> : null}
     </div>
   );
 }

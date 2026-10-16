@@ -29,6 +29,7 @@ export const DEFAULT_SETTINGS = {
   filmFee: 800,
   maxRounds: 50, // 30 | 50 | null (null = unlimited; JSON cannot carry Infinity)
   dice: 'lucky', // 'lucky' | 'fair'  (see shared/dice.js)
+  diceCount: 1, // New games use one die; explicit 2 retains the legacy rules.
   auctionOnDecline: true, // declining an unowned tile opens a sealed auction for it
 };
 
@@ -70,6 +71,7 @@ export function normalizeSettings(input) {
     cfg.maxRounds = Number.isNaN(n) || n < 1 ? DEFAULT_SETTINGS.maxRounds : n;
   }
   cfg.dice = src.dice === 'fair' || src.dice === 'lucky' ? src.dice : DEFAULT_SETTINGS.dice;
+  cfg.diceCount = src.diceCount === 2 ? 2 : 1;
   cfg.auctionOnDecline = typeof src.auctionOnDecline === 'boolean' ? src.auctionOnDecline : DEFAULT_SETTINGS.auctionOnDecline;
   if (src.debug === true) cfg.debug = true;
   return cfg;
@@ -357,7 +359,7 @@ export function createGame({ players, settings = {}, seed } = {}) {
     turn: 0,
     phase: 'roll',
     extraRoll: false,
-    dice: [1, 1],
+    dice: cfg.diceCount === 1 ? [0] : [1, 1], // Zero means no roll has happened yet.
     owners: Array(BOARD_SIZE).fill(null),
     levels: Array(BOARD_SIZE).fill(0),
     mortgaged: Array(BOARD_SIZE).fill(false),
@@ -849,13 +851,14 @@ function doTradeDone(s, ev) {
 function doRoll(s, ev, action) {
   const p = turnPlayer(s);
   let rolled;
-  if (s.cfg.debug === true && Array.isArray(action.dice)) rolled = { values: [action.dice[0], action.dice[1]], assist: null, active: [] };
+  if (s.cfg.debug === true && Array.isArray(action.dice)) rolled = { values: [...action.dice], assist: null, active: [] };
   else rolled = rollDice(s, p.id, { previewRent });
   const dice = rolled.values;
-  s.dice = [dice[0], dice[1]];
-  ev.push({ type: 'dice', player: p.id, values: [dice[0], dice[1]], assist: rolled.assist ?? null });
-  const total = dice[0] + dice[1];
-  const isDouble = dice[0] === dice[1];
+  const single = s.cfg.diceCount === 1;
+  s.dice = [...dice];
+  ev.push({ type: 'dice', player: p.id, values: [...dice], assist: rolled.assist ?? null });
+  const total = dice.reduce((sum, value) => sum + value, 0);
+  const isDouble = single ? dice[0] === 6 : dice[0] === dice[1];
   p.rollsSinceDouble = isDouble ? 0 : (p.rollsSinceDouble || 0) + 1;
   if ((rolled.active || []).includes('mercy')) p.rentStreak = 0; // mercy lasts one roll
 
@@ -871,7 +874,7 @@ function doRoll(s, ev, action) {
       p.jailTurns = 0;
       p.doubles = 0;
       s.extraRoll = false;
-      ev.push({ type: 'jail', player: p.id, jailed: false, reason: 'doubles' });
+      ev.push({ type: 'jail', player: p.id, jailed: false, reason: single ? 'six' : 'doubles' });
       stepAndLand();
     } else {
       p.jailTurns -= 1;
@@ -885,7 +888,7 @@ function doRoll(s, ev, action) {
   if (isDouble) {
     p.doubles += 1;
     if (p.doubles >= 3) {
-      sendToJail(s, ev, p, 'three_doubles');
+      sendToJail(s, ev, p, single ? 'three_sixes' : 'three_doubles');
       endTurn(s, ev);
       return;
     }
@@ -980,7 +983,7 @@ function validate(prev, action) {
       if (prev.phase === 'manage' && !prev.extraRoll) return 'You already rolled. End your turn';
       if (prev.cfg.debug === true && action.dice !== undefined) {
         const d = action.dice;
-        if (!Array.isArray(d) || d.length !== 2 || !d.every((x) => Number.isInteger(x) && x >= 1 && x <= 6)) return 'Invalid dice';
+        if (!Array.isArray(d) || d.length !== (prev.cfg.diceCount === 1 ? 1 : 2) || !d.every((x) => Number.isInteger(x) && x >= 1 && x <= 6)) return 'Invalid dice';
       }
       return null;
     }
@@ -1030,7 +1033,7 @@ function validate(prev, action) {
     case 'END_TURN':
       if (!isTurn) return 'Not your turn';
       if (prev.phase !== 'manage') return 'You cannot end your turn yet';
-      if (prev.extraRoll) return 'You rolled doubles. Roll again';
+      if (prev.extraRoll) return prev.cfg.diceCount === 1 ? 'You rolled a six. Roll again' : 'You rolled doubles. Roll again';
       return null;
     case 'BID': {
       if (prev.phase !== 'auction' || !prev.pending) return 'There is no auction right now';

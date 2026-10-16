@@ -9,7 +9,7 @@ import {
 const ids = ['p0', 'p1', 'p2', 'p3', 'p4', 'p5'];
 const mkPlayers = (n) => Array.from({ length: n }, (_, i) => ({ id: ids[i], name: `Player ${i}`, avatar: i }));
 // auctionOnDecline defaults to false here so the classic tests stay simple; the v2 tests switch it on.
-const game = (n = 3, settings = {}, seed = 7) => createGame({ players: mkPlayers(n), seed, settings: { debug: true, auctionOnDecline: false, ...settings } });
+const game = (n = 3, settings = {}, seed = 7) => createGame({ players: mkPlayers(n), seed, settings: { debug: true, diceCount: 2, auctionOnDecline: false, ...settings } });
 const edit = (s, fn) => {
   const c = structuredClone(s);
   fn(c);
@@ -888,7 +888,7 @@ describe('bots', () => {
   const botGame = (n = 3, bots = []) => createGame({
     players: Array.from({ length: n }, (_, i) => ({ id: ids[i], name: `B${i}`, avatar: i, isBot: true, bot: bots[i] })),
     seed: 11,
-    settings: {},
+    settings: { diceCount: 2 },
   });
   const rnd = () => 0.5;
 

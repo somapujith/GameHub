@@ -44,12 +44,12 @@ const DICE_OPTIONS = [
 ];
 
 const DEFAULTS = {
-  players: 3,
-  picked: [],
-  goal: DEFAULT_GOAL,
-  maxRounds: DEFAULT_ROUNDS,
+  players: 2,
+  picked: ['biryani-bhai'],
+  goal: 30000,
+  maxRounds: 30,
   startCash: DEFAULT_CASH,
-  dice: DEFAULT_DICE,
+  dice: 'fair',
   auctionOnDecline: DEFAULT_AUCTION_ON_DECLINE,
   speed: 'normal',
 };
@@ -153,7 +153,7 @@ export default function PlaySetup() {
 
   return (
     <div className="hh-setup">
-      <PageHeader back="/" title="Quick Play" te="క్విక్ ప్లే" subtitle="Set up a game against the city's sharpest rivals." icon="dice" />
+      <PageHeader back="/" title="Your table, your rules" subtitle="Pick a rival. Set the stakes. Chalo, let's play." icon="dice" />
 
       <div className="hh-setup__grid">
         <div className="hh-setup__left">
@@ -291,6 +291,8 @@ export default function PlaySetup() {
               <p className="hh-gs__help">One round = every player plays once. When the rounds run out, the richest player wins.</p>
             </div>
 
+            <details className="hh-table-rules">
+              <summary><span><Icon name="gear" size={16} /> More table rules</span><Icon name="chevR" size={16} /></summary>
             <div className="hh-gs__group" role="radiogroup" aria-labelledby="hh-cash-l" onKeyDown={radioKeyNav}>
               <p id="hh-cash-l" className="hh-gs__label">
                 <Icon name="rupee" size={16} /> Start cash
@@ -314,10 +316,10 @@ export default function PlaySetup() {
 
             <div className="hh-gs__group">
               <p id="hh-dice-l" className="hh-gs__label">
-                <Icon name="dice" size={16} /> Dice
+                <Icon name="dice" size={16} /> Single die · roll style
               </p>
               <Segmented label="Dice mode" value={dice} onChange={(v) => patch({ dice: v })} options={DICE_OPTIONS} />
-              <p className="hh-gs__help">Lucky dice gently help whoever is behind. Nothing is guaranteed.</p>
+              <p className="hh-gs__help">One die, six faces. Fair gives every face an equal chance; Lucky gently helps the player behind.</p>
             </div>
 
             <div className="hh-gs__group hh-gs__group--switch">
@@ -336,6 +338,7 @@ export default function PlaySetup() {
               </p>
               <Segmented label="Game speed" value={speed} onChange={(v) => patch({ speed: v })} options={SPEEDS} size="sm" />
             </div>
+            </details>
 
             <p className="hh-gs__summary" aria-live="polite">
               <Icon name="sparkle" size={16} /> <span>{settingsSummary(settings)}</span>

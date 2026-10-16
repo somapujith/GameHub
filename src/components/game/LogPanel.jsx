@@ -40,7 +40,7 @@ export function LogList({ log, className = '' }) {
         stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
       }}
     >
-      {log.length === 0 ? <li className="hg-log-empty">Nothing yet. Roll the dice!</li> : null}
+      {log.length === 0 ? <li className="hg-log-empty">Your story starts with a roll.</li> : null}
       {log.map((entry, i) => (
         <LogItem key={entry.id ?? i} entry={entry} fresh={i >= initial.current} />
       ))}
@@ -83,7 +83,7 @@ export default function LogPanel({ session, variant = 'drawer' }) {
         aria-label={`Open game log${latest ? `. Latest: ${latest.text}` : ''}`}
       >
         <ol className="hg-logdrawer-list" aria-hidden="true">
-          {last.length === 0 ? <li className="hg-log-empty">Nothing yet. Roll the dice!</li> : null}
+          {last.length === 0 ? <li className="hg-log-empty">Your story starts with a roll.</li> : null}
           {last.map((entry, i) => (
             <LogItem key={entry.id ?? i} entry={entry} />
           ))}

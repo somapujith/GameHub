@@ -4,7 +4,7 @@ import { CenterArt } from '@/components/art/index.js';
 import Dice, { LuckyBadge } from './Dice.jsx';
 import '@/styles/board.css';
 
-const WELCOME = { id: 'welcome', tone: 'cheer', text: 'Welcome to Hyderabad! Roll the dice to begin.' };
+const WELCOME = { id: 'welcome', tone: 'cheer', text: 'Kya bolte, miyaan? Your city. Your empire.' };
 
 /** Keeps the previous bubble around for the exit animation when the message clears. */
 function useLeavingBubble(current) {
@@ -66,7 +66,7 @@ function CenterStageImpl({ session, odds }) {
     bubble = {
       id: `idle-${turnPlayer.id}-${d.round}-${session?.options?.roll ? 'r' : 'w'}`,
       tone: 'info',
-      text: session?.options?.roll ? 'Your turn! Tap the dice to roll.' : isMe ? 'Your move…' : `${turnPlayer.name} is playing…`,
+      text: session?.options?.roll ? 'Your turn, miyaan. Hit Roll below!' : isMe ? 'Your move…' : `${turnPlayer.name} is playing…`,
     };
   }
   const leaving = useLeavingBubble(bubble);

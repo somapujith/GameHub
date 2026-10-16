@@ -1,15 +1,15 @@
 // Dice engine (CONTRACT section 3c). Pure, deterministic, no I/O. Runs in the browser AND the Worker.
 //
-// `lucky` (default) = a SLIGHT, disclosed, bounded bias on the 36 equally likely (a, b) combos;
-// `fair` = every combo 1/36. The engine injects `ctx = { previewRent(state, tileId, diceSum) }` so this
-// module never imports engine.js. Combo index = (a - 1) * 6 + (b - 1).
+// `lucky` (default) applies a small, disclosed, bounded bias to the six single-die outcomes.
+// `fair` gives each face 1/6. Saved two-die games keep their 36 outcomes. The engine injects
+// `ctx = { previewRent(state, tileId, diceSum) }` so this module never imports engine.js.
 //
 // Player fields read (the engine maintains them):
 //   cash, pos, jailTurns, bankrupt      existing fields
 //   doubles          doubles thrown so far in the CURRENT turn (0 after a non-double, reset each turn)
 //   rollsSinceDouble consecutive non-double rolls (reset to 0 by a double, +1 by a non-double)
 //   rentStreak       consecutive turns in which the player paid rent >= DICE_RULES.mercy.minRent
-// State fields read: cfg.dice, owners[28], levels[28], mortgaged[28] (optional), players[], rng (written by rollDice only).
+// State fields read: cfg.dice, cfg.diceCount, owners[28], levels[28], mortgaged[28] (optional), players[], rng (written by rollDice only).
 
 import { BOARD_SIZE, JAIL_TILE, START_TILE, TILES, isBuyable, mortgageValue, upgradeCost } from './board.js';
 import { nextFloat } from './rng.js';
@@ -18,6 +18,12 @@ export const DICE_MODES = ['lucky', 'fair'];
 
 /** The 36 dice combos as [a, b] pairs, index = (a - 1) * 6 + (b - 1). */
 export const COMBOS = Array.from({ length: 36 }, (_, i) => [Math.floor(i / 6) + 1, (i % 6) + 1]);
+
+// Missing diceCount belongs to a saved game from before single-die play.
+const SINGLE_COMBOS = [[1], [2], [3], [4], [5], [6]];
+const outcomes = (state) => state?.cfg?.diceCount === 1 ? SINGLE_COMBOS : COMBOS;
+const totalOf = (values) => values.reduce((sum, value) => sum + value, 0);
+const bonusOf = (values) => values.length === 1 ? values[0] === 6 : values[0] === values[1];
 
 /** Fair probability of each dice total 2..12 (1/36 .. 6/36 .. 1/36). */
 export const FAIR_TOTAL_PROBS = Object.fromEntries(
@@ -44,8 +50,7 @@ export const DICE_RULES = {
   minShift: 0.005,
 };
 
-const UNIFORM = 1 / 36;
-const ONES = () => new Array(36).fill(1);
+const ONES = (state) => new Array(outcomes(state).length).fill(1);
 const clamp = (x, lo, hi) => (x < lo ? lo : x > hi ? hi : x);
 
 // ---------------------------------------------------------------------------------------------
@@ -111,6 +116,7 @@ function classify(state, playerId, dest) {
  * and the three-doubles rule cannot apply).
  */
 function ruleMultipliers(state, playerId, ctx) {
+  const combos = outcomes(state);
   const rules = { comeback: null, mercy: null, pity: null, antibust: null };
   const p = playerOf(state, playerId);
   if (!p) return rules;
@@ -118,25 +124,24 @@ function ruleMultipliers(state, playerId, ctx) {
 
   // (3) pity doubles: after 6 non-double rolls in a row doubles x1.5.
   if ((p.rollsSinceDouble || 0) >= DICE_RULES.pity.rolls) {
-    rules.pity = COMBOS.map(([a, b]) => (a === b ? DICE_RULES.pity.mult : 1));
+    rules.pity = combos.map((values) => (bonusOf(values) ? DICE_RULES.pity.mult : 1));
   }
   if (jailed) return rules;
 
   // (4) anti-bust: after two doubles in the same turn doubles x0.5 (floored to 0.6 by the clamp).
   if ((p.doubles || 0) >= DICE_RULES.antibust.doubles) {
-    rules.antibust = COMBOS.map(([a, b]) => (a === b ? DICE_RULES.antibust.mult : 1));
+    rules.antibust = combos.map((values) => (bonusOf(values) ? DICE_RULES.antibust.mult : 1));
   }
 
   const boost = comebackBoost(state, playerId);
   const mercyOn = (p.rentStreak || 0) >= DICE_RULES.mercy.streak;
   if (!boost && !mercyOn) return rules;
 
-  const comeback = boost ? ONES() : null;
-  const mercy = mercyOn ? ONES() : null;
+  const comeback = boost ? ONES(state) : null;
+  const mercy = mercyOn ? ONES(state) : null;
   const pos = p.pos || 0;
-  for (let i = 0; i < 36; i++) {
-    const [a, b] = COMBOS[i];
-    const sum = a + b;
+  for (let i = 0; i < combos.length; i++) {
+    const sum = totalOf(combos[i]);
     const dest = (pos + sum) % BOARD_SIZE;
     const kind = classify(state, playerId, dest);
     if (kind === 'good') {
@@ -163,7 +168,7 @@ function normalise(mults) {
 /** Total-variation distance (0..1) between a 36-weight distribution and the fair one. */
 function shiftFromFair(weights) {
   let s = 0;
-  for (const w of weights) s += Math.abs(w - UNIFORM);
+  for (const w of weights) s += Math.abs(w - 1 / weights.length);
   return s / 2;
 }
 
@@ -174,12 +179,12 @@ function shiftFromFair(weights) {
  */
 export function rawMultipliers(state, playerId, ctx) {
   const rules = { comeback: null, mercy: null, pity: null, antibust: null };
-  if (state?.cfg?.dice === 'fair') return { raw: ONES(), clamped: ONES(), rules };
+  if (state?.cfg?.dice === 'fair') return { raw: ONES(state), clamped: ONES(state), rules };
   Object.assign(rules, ruleMultipliers(state, playerId, ctx));
-  const raw = ONES();
+  const raw = ONES(state);
   for (const name of ASSIST_NAMES) {
     if (!rules[name]) continue;
-    for (let i = 0; i < 36; i++) raw[i] *= rules[name][i];
+    for (let i = 0; i < raw.length; i++) raw[i] *= rules[name][i];
   }
   return { raw, clamped: clampAll(raw), rules };
 }
@@ -191,7 +196,10 @@ export function rawMultipliers(state, playerId, ctx) {
  * `rentStreak` after a roll in which 'mercy' was active). `shift` = total-variation distance from fair.
  */
 export function diceWeights(state, playerId, ctx) {
-  if (state?.cfg?.dice === 'fair') return { weights: new Array(36).fill(UNIFORM), assist: null, active: [], shift: 0 };
+  if (state?.cfg?.dice === 'fair') {
+    const count = outcomes(state).length;
+    return { weights: new Array(count).fill(1 / count), assist: null, active: [], shift: 0 };
+  }
   const { clamped, rules } = rawMultipliers(state, playerId, ctx);
   const weights = normalise(clamped);
   const shift = shiftFromFair(weights);
@@ -233,7 +241,7 @@ export function sampleCombo(weights, u) {
 export function rollDice(state, playerId, ctx) {
   const { weights, assist, active } = diceWeights(state, playerId, ctx);
   const idx = sampleCombo(weights, nextFloat(state));
-  return { values: [COMBOS[idx][0], COMBOS[idx][1]], assist, active };
+  return { values: [...outcomes(state)[idx]], assist, active };
 }
 
 /**
@@ -241,15 +249,18 @@ export function rollDice(state, playerId, ctx) {
  */
 export function diceOdds(state, playerId, ctx) {
   const { weights, assist } = diceWeights(state, playerId, ctx);
+  const combos = outcomes(state);
   const totals = {};
-  for (let t = 2; t <= 12; t++) totals[t] = 0;
+  for (const values of combos) totals[totalOf(values)] = 0;
   let doubles = 0;
-  for (let i = 0; i < 36; i++) {
-    const [a, b] = COMBOS[i];
-    totals[a + b] += weights[i];
-    if (a === b) doubles += weights[i];
+  let bonus = 0;
+  for (let i = 0; i < combos.length; i++) {
+    const values = combos[i];
+    totals[totalOf(values)] += weights[i];
+    if (bonusOf(values)) bonus += weights[i];
+    if (values.length === 2 && bonusOf(values)) doubles += weights[i];
   }
-  return { totals, doubles, assist };
+  return state?.cfg?.diceCount === 1 ? { totals, doubles, bonus, assist } : { totals, doubles, assist };
 }
 
 /**
@@ -262,16 +273,17 @@ export function landingOdds(state, playerId, ctx) {
   const p = playerOf(state, playerId);
   if (!p) return out;
   const { weights } = diceWeights(state, playerId, ctx);
+  const combos = outcomes(state);
   const pos = p.pos || 0;
   const jailed = (p.jailTurns || 0) > 0;
   const thirdDouble = !jailed && (p.doubles || 0) >= 2;
-  for (let i = 0; i < 36; i++) {
-    const [a, b] = COMBOS[i];
-    const isDouble = a === b;
+  for (let i = 0; i < combos.length; i++) {
+    const sum = totalOf(combos[i]);
+    const isDouble = bonusOf(combos[i]);
     let dest;
-    if (jailed) dest = isDouble ? (pos + a + b) % BOARD_SIZE : pos;
+    if (jailed) dest = isDouble ? (pos + sum) % BOARD_SIZE : pos;
     else if (thirdDouble && isDouble) dest = JAIL_TILE;
-    else dest = (pos + a + b) % BOARD_SIZE;
+    else dest = (pos + sum) % BOARD_SIZE;
     out[dest] += weights[i];
   }
   return out;

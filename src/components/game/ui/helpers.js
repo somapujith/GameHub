@@ -149,7 +149,7 @@ export function landingOddsSafe(view, playerId) {
 export const diceLabel = (cfg) => ((cfg?.dice ?? 'lucky') === 'fair' ? '⚖️ Fair dice' : '🍀 Lucky dice');
 
 export const LUCKY_DICE_TEXT =
-  'Lucky dice gently help whoever is behind: slightly better odds of landing on useful tiles, a little protection after big rent bills, and fewer long dry spells without doubles. Nothing is guaranteed. The host can switch to Fair dice.';
+  'Lucky dice gently help whoever is behind: slightly better odds of landing on useful tiles, a little protection after big rent bills, and fewer long dry spells without a bonus roll. Nothing is guaranteed. The host can switch to Fair dice.';
 export const FAIR_DICE_TEXT = 'Fair dice: every roll is pure chance, with no help for anyone.';
 
 export function worthOf(state, id) {
@@ -193,7 +193,7 @@ export function ordinal(n) {
 }
 
 export const ROUND_RULE_TEXT =
-  "One round = every player plays once (extra rolls from doubles don't count). The game ends when someone reaches the target, or when the rounds run out and the richest player wins.";
+  "One round = every player plays once (bonus rolls don't count). The game ends when someone reaches the target, or when the rounds run out and the richest player wins.";
 
 /** Round progress for the top bar: { round, max|null, left|null, final, soon, pct }. */
 export function roundInfo(session) {
@@ -225,6 +225,7 @@ export function settingsSummary(cfg, goal) {
 }
 
 export const diceSum = (session) => {
-  const d = session.display?.dice || session.view?.dice || [3, 4];
-  return (d[0] || 0) + (d[1] || 0) || 7;
+  const single = (session.display?.cfg || session.view?.cfg)?.diceCount === 1;
+  const d = session.display?.dice || session.view?.dice || [];
+  return d.reduce((sum, value) => sum + (Number(value) || 0), 0) || (single ? 4 : 7);
 };

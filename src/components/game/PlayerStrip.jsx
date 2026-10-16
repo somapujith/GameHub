@@ -1,9 +1,9 @@
 // The row/grid (mobile) or list (desktop sidebar) of PlayerCards.
-import { useEffect, useRef } from 'react';
+import { Fragment, useEffect, useRef } from 'react';
 import PlayerCard from './PlayerCard.jsx';
 import { activePlayer, settingsSummary, useReducedMotion, useWorths } from './ui/helpers.js';
 
-export default function PlayerStrip({ session, onSelect, variant = 'strip' }) {
+export default function PlayerStrip({ session, onSelect, variant = 'strip', action }) {
   const { worths, leaderId, state } = useWorths(session);
   const players = state.players;
   const active = session.view?.phase === 'over' ? null : activePlayer(session);
@@ -28,9 +28,11 @@ export default function PlayerStrip({ session, onSelect, variant = 'strip' }) {
           <p className="hg-summary">{summary}</p>
         </header>
       ) : null}
-      <div className="hg-strip" data-n={players.length} data-variant={variant} role="list" ref={listRef}>
-        {players.map((p) => (
-          <div role="listitem" className="hg-strip-cell" key={p.id} data-active={active && active.id === p.id ? '' : undefined}>
+      <div className={`hg-strip${action && players.length === 2 ? ' hg-strip--duel' : ''}`} data-n={players.length} data-variant={variant} role="list" ref={listRef}>
+        {players.map((p, index) => (
+          <Fragment key={p.id}>
+          {action && players.length === 2 && index === 1 ? <div className="hg-duel-action" role="listitem">{action}</div> : null}
+          <div role="listitem" className="hg-strip-cell" data-active={active && active.id === p.id ? '' : undefined}>
             <PlayerCard
               player={p}
               worth={worths[p.id] ?? p.cash}
@@ -41,8 +43,10 @@ export default function PlayerStrip({ session, onSelect, variant = 'strip' }) {
               onSelect={onSelect}
             />
           </div>
+          </Fragment>
         ))}
       </div>
+      {action && players.length !== 2 ? <div className="hg-group-action">{action}</div> : null}
     </section>
   );
 }

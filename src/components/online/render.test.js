@@ -109,6 +109,12 @@ describe('Friends', () => {
 });
 
 describe('JoinRoom', () => {
+  it('returns a signed-in host to room creation after authentication', () => {
+    const html = page('/join?host=1', h(JoinRoom), { user: guest });
+    expect(html).toContain('Create private room');
+    expect(html).toContain('Share your six-character code');
+    expect(html).not.toContain('Enter the 6-character code');
+  });
   it('shows the six boxes for a signed-in user', () => {
     const html = page('/join', h(JoinRoom), { user: guest });
     expect(html).toContain('Enter the 6-character code');

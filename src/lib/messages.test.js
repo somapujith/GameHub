@@ -10,6 +10,12 @@ const ctx = {
 };
 
 describe('describeEvent', () => {
+  it('announces one die, a six and single-die jail rules without a phantom second die', () => {
+    expect(describeEvent({ type: 'dice', player: 'me', values: [1] }, ctx).text).toBe('You rolled 1');
+    expect(describeEvent({ type: 'dice', player: 'me', values: [6] }, ctx).text).toBe('You rolled 6: six!');
+    expect(describeEvent({ type: 'jail', player: 'me', jailed: false, reason: 'six' }, ctx).text).toBe('You rolled a six and broke out of jail');
+    expect(describeEvent({ type: 'jail', player: 'me', jailed: true, reason: 'three_sixes' }, ctx).text).toContain('Three sixes in a row!');
+  });
   it('describes dice for me and for others', () => {
     expect(describeEvent({ type: 'dice', player: 'me', values: [4, 3] }, ctx).text).toBe('You rolled 4 + 3');
     const d = describeEvent({ type: 'dice', player: 'b1', values: [2, 2] }, ctx);

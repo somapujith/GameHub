@@ -30,7 +30,7 @@ const DEFERRED_MAX_AGE = 4500; // a postponed flavour line is dropped if it woul
 /** Base delays in ms (scaled down when reduced motion is on or the queue is backed up). */
 const T = {
   dice: 900,
-  afterDice: 260,
+  afterDice: 620,
   step: 170,
   teleportPre: 220,
   teleport: 300,
@@ -117,7 +117,7 @@ const EMPTY_MORTGAGED = Object.freeze(Array(BOARD_SIZE).fill(false));
 export function displayFromState(state) {
   if (!state || !Array.isArray(state.players)) {
     return {
-      players: [], owners: [...EMPTY_OWNERS], levels: [...EMPTY_LEVELS], mortgaged: [...EMPTY_MORTGAGED], turn: 0, round: 1, dice: [1, 1],
+      players: [], owners: [...EMPTY_OWNERS], levels: [...EMPTY_LEVELS], mortgaged: [...EMPTY_MORTGAGED], turn: 0, round: 1, dice: [0],
       phase: 'roll', goal: 0, cfg: {}, winner: null, lastCash: null, assist: null, assistPlayer: null, debt: null, trade: null,
     };
   }
@@ -138,7 +138,7 @@ export function displayFromState(state) {
     mortgaged: Array.isArray(state.mortgaged) ? state.mortgaged.map(Boolean) : [...EMPTY_MORTGAGED],
     turn: state.turn || 0,
     round: state.round || 1,
-    dice: Array.isArray(state.dice) ? [state.dice[0], state.dice[1]] : [1, 1],
+    dice: Array.isArray(state.dice) ? [...state.dice] : [0],
     phase: state.phase || 'roll',
     goal: state.cfg && state.cfg.goal !== undefined ? state.cfg.goal : 0,
     cfg: state.cfg ? { ...state.cfg } : {},
@@ -409,9 +409,12 @@ export function createPresenterCore({ meId, initialState, speed: speedOpt = 1, d
         commit({ rolling: true });
         fx('dice');
         if (!(await wait(dl('dice')))) return false;
-        const [a, b] = ev.values || [1, 1];
+        const values = ev.values || [1];
+        const [a, b] = values;
         const assist = ev.assist || null;
-        patchDisplay((d) => ({ ...d, dice: [a, b], assist, assistPlayer: assist ? ev.player : null }));
+        // Keep the landing transition inside the presenter pause, including fast/catch-up play.
+        const diceSettleMs = reducedNow ? 0 : Math.max(0, Math.min(560, dl('afterDice') * speed() - 32));
+        patchDisplay((d) => ({ ...d, dice: [...values], diceSettleMs, assist, assistPlayer: assist ? ev.player : null }));
         commit({ rolling: false });
         announce(ev);
         if (assist && byMe) {
@@ -426,7 +429,7 @@ export function createPresenterCore({ meId, initialState, speed: speedOpt = 1, d
             }
           }
         }
-        if (a === b) say('doubles', byMe);
+        if (values.length === 2 && a === b) say('doubles', byMe);
         return wait(dl('afterDice'));
       }
 

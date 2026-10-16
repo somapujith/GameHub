@@ -1,0 +1,53 @@
+/* The one die at the heart of the table. The roll button is in the player rail. */
+.hb-dice.hb-dice--single {
+  --die: clamp(38px, 10.8cqw, 68px);
+  position: relative;
+  gap: 1.9cqw;
+  padding: 1.1cqw 2cqw .5cqw;
+  pointer-events: none;
+}
+.hb-dice--single .hb-dice__row { gap: 0; padding: 1.4cqw 0 0; }
+.hb-dice--single .hb-face {
+  border: 1px solid #d9dfe3;
+  border-radius: calc(var(--die) * .2);
+  background: linear-gradient(145deg, #fff 12%, #fbfcfb 55%, #d5dcdf);
+  box-shadow: inset 0 0 calc(var(--die) * .1) #b8c4cd66, inset 0 0 0 1px #fff;
+}
+.hb-dice--single .hb-pip {
+  width: 75%;
+  height: 75%;
+  background: radial-gradient(circle at 35% 30%, #ffe67b 0%, #f5c84b 55%, #c8942e 100%);
+  box-shadow: inset 0 1px 2px #976b2355, 0 1px 0 #fff;
+}
+.hb-dice--single .hb-dice__hint {
+  min-height: 2.5cqw;
+  padding: .4cqw 1cqw;
+  color: #365465;
+  font-size: clamp(10px, 2.1cqw, 13px);
+  font-weight: 650;
+  letter-spacing: 0;
+}
+.hb-dice--single .hb-dice__assist {
+  color: #527e31;
+  font-size: clamp(9px, 1.8cqw, 11px);
+  font-weight: 700;
+}
+.hb-dice--single .hb-cube.is-tumbling { animation: hh-one-die-tumble .78s linear infinite; }
+.hb-dice--single .is-tossing .hb-die3d__air { animation: hh-one-die-toss .78s ease-in-out infinite; }
+.hb-dice--single .is-landing .hb-die3d__air,
+.hb-dice--single .is-landing .hb-die3d__shadow { animation-duration: var(--hb-die-settle, 560ms); }
+@keyframes hh-one-die-tumble {
+  0% { transform: var(--from) rotate3d(1, .7, .3, 0deg); }
+  100% { transform: var(--from) rotate3d(1, .7, .3, 720deg); }
+}
+@keyframes hh-one-die-toss {
+  0%, 100% { transform: translate(0, 0); }
+  25% { transform: translate(-.6cqw, -2.4cqw); }
+  50% { transform: translate(.6cqw, -.1cqw); }
+  75% { transform: translate(-.3cqw, -1.3cqw); }
+}
+.hb-dice--single.is-reduced *,
+[data-motion="reduced"] .hb-dice--single * { animation: none !important; transition: none !important; }
+@media (prefers-reduced-motion: reduce) {
+  .hb-dice--single * { animation: none !important; transition: none !important; }
+}

@@ -1,8 +1,4 @@
 // Fonts (self-hosted via @fontsource; the weight files bundle latin, latin-ext (₹) and telugu).
-import '@fontsource/baloo-tammudu-2/400.css';
-import '@fontsource/baloo-tammudu-2/600.css';
-import '@fontsource/baloo-tammudu-2/700.css';
-import '@fontsource/baloo-tammudu-2/800.css';
 import '@fontsource/noto-sans-telugu/400.css';
 import '@fontsource/noto-sans-telugu/600.css';
 import '@fontsource/noto-sans-telugu/700.css';

@@ -1,6 +1,5 @@
 import { Suspense } from 'react';
 import { Link, Outlet, useLocation } from 'react-router-dom';
-import { Logo, Scene } from '@/components/art/index.js';
 import ErrorBoundary from './ErrorBoundary.jsx';
 import Loading from './Loading.jsx';
 import ProfileChip from './ProfileChip.jsx';
@@ -28,7 +27,6 @@ export default function AppShell() {
       </a>
       {!bare && (
         <div className="hh-backdrop" aria-hidden="true">
-          <Scene name="night" className="hh-backdrop__scene" />
           <div className="hh-backdrop__shade" />
         </div>
       )}
@@ -37,12 +35,8 @@ export default function AppShell() {
         <header className="hh-topbar">
           <div className="hh-topbar__inner">
             <Link to="/" className="hh-topbar__logo" aria-label="Hyderabad Tycoon, home">
-              <span className="hh-topbar__logo-sm" aria-hidden="true">
-                <Logo compact size={34} />
-              </span>
-              <span className="hh-topbar__logo-lg" aria-hidden="true">
-                <Logo size={40} />
-              </span>
+              <span className="hh-brand__mark" aria-hidden="true"><Icon name="dice" size={25} /></span>
+              <span className="hh-brand__name">Hyderabad<span>TYCOON</span></span>
             </Link>
             <TopNav />
             <div className="hh-topbar__end">

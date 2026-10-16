@@ -2,8 +2,10 @@
 import { useEffect, useRef, useState } from 'react';
 import { Navigate, useLocation, useNavigate } from 'react-router-dom';
 import GameView from '@/components/game/GameView.jsx';
+import Modal from '@/components/shell/Modal.jsx';
 import { useOfflineGame } from '@/lib/session/useOfflineGame.js';
 import { addMatchResult, completeChapter, loadGame } from '@/lib/storage.js';
+import { upgradeSavedGame } from '@/lib/session/resumeGame.js';
 
 /** Work out what to play. Returns { config, chapterId, resume } or null (-> back to /play). */
 function resolveSource(routeState) {
@@ -69,8 +71,28 @@ function OfflineGameInner({ source }) {
 }
 
 function OfflineGameRoute({ routeState }) {
-  const [source] = useState(() => resolveSource(routeState));
+  const navigate = useNavigate();
+  const [source, setSource] = useState(() => resolveSource(routeState));
+  const [upgradeNeeded, setUpgradeNeeded] = useState(() => !!(!routeState?.config && source?.resume?.state && source.resume.state.cfg?.diceCount !== 1));
+  const [replaceSaved, setReplaceSaved] = useState(() => {
+    if (!routeState?.config) return false;
+    try { const saved = loadGame(); return !!(saved?.state && saved.state.phase !== 'over' && !saved.state.winner); }
+    catch { return false; }
+  });
   if (!source) return <Navigate to="/play" replace />;
+  if (replaceSaved) return <div className="hg-game hg-game--loading">
+    <Modal open onClose={() => navigate('/')} title="You have a game in progress" actions={<>
+      <button type="button" className="btn btn--primary" data-autofocus onClick={() => navigate('/game/offline', { replace: true, state: null })}>Resume saved game</button>
+      <button type="button" className="btn btn--ghost" onClick={() => setReplaceSaved(false)}>Start a new game</button>
+    </>}><p>Starting a new table replaces your saved offline game. Resume where you left off, or make a fresh start.</p></Modal>
+  </div>;
+  if (upgradeNeeded) return <div className="hg-game hg-game--loading"><Modal open title="Bring your table to one die" onClose={() => navigate('/')} actions={<>
+    <button type="button" className="btn btn--primary" data-autofocus onClick={() => {
+      const state = upgradeSavedGame(source.resume.state);
+      setSource({ ...source, resume: { state }, config: { ...source.config, settings: { ...source.config.settings, diceCount: 1 } } });
+      setUpgradeNeeded(false);
+    }}>Continue with one die</button><button type="button" className="btn btn--ghost" onClick={() => navigate('/')}>Back</button>
+  </>}><p>This saved game uses the older two-die rules. Continue with one die while keeping your cash, properties, positions, and pending decisions. A six now earns another roll.</p></Modal></div>;
   return <OfflineGameInner source={source} />;
 }
 
