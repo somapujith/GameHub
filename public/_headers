@@ -1,0 +1,29 @@
+# Cloudflare Workers static-assets headers (Vite copies public/ into dist/).
+# API responses get the equivalent headers from the Worker (worker/security.js).
+#
+# CSP notes - Google Identity Services (the "Sign in with Google" button) needs:
+#   script-src  https://accounts.google.com/gsi/client
+#   frame-src   https://accounts.google.com/gsi/
+#   connect-src https://accounts.google.com/gsi/   (covered by https://accounts.google.com)
+#   style-src   https://accounts.google.com/gsi/style
+#   img-src     https://*.googleusercontent.com    (account avatar inside the button)
+# 'wss:' lets the game open its WebSocket on whatever host serves it (Safari does not
+# match 'self' against ws/wss). Inline styles are allowed because React sets style="" attributes.
+
+/*
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin-when-cross-origin
+  Permissions-Policy: accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()
+  X-Frame-Options: DENY
+  Strict-Transport-Security: max-age=31536000; includeSubDomains
+  Content-Security-Policy: default-src 'self'; script-src 'self' https://accounts.google.com/gsi/client; style-src 'self' 'unsafe-inline' https://accounts.google.com/gsi/style; img-src 'self' data: blob: https://*.googleusercontent.com; font-src 'self' data:; media-src 'self' blob: data:; connect-src 'self' https://accounts.google.com wss:; frame-src https://accounts.google.com/gsi/; worker-src 'self' blob:; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'
+
+# Vite emits content-hashed files under /assets: cache for a year.
+/assets/*
+  Cache-Control: public, max-age=31536000, immutable
+
+# The HTML shell must always be revalidated so a deploy is picked up immediately.
+/
+  Cache-Control: no-cache
+/index.html
+  Cache-Control: no-cache

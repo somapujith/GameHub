@@ -1,0 +1,33 @@
+{
+  "name": "hyderabad-tycoon",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "sim": "node scripts/simulate.js",
+    "worker": "wrangler dev --port 8787",
+    "migrate": "node scripts/migrate.js",
+    "deploy": "npm run build && wrangler deploy"
+  },
+  "dependencies": {
+    "@fontsource/baloo-tammudu-2": "^5.3.0",
+    "@fontsource/noto-sans-telugu": "^5.3.0",
+    "@neondatabase/serverless": "^1.2.0",
+    "hono": "^4.13.13",
+    "jose": "^6.2.12",
+    "qrcode.react": "^4.2.0",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "react-router-dom": "^7.18.4"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^6.1.2",
+    "vite": "^8.3.4",
+    "vitest": "^5.0.5",
+    "wrangler": "^4.151.1"
+  }
+}

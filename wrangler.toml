@@ -1,0 +1,49 @@
+# Hyderabad Tycoon - one Cloudflare Worker: static React app + /api + /ws + Durable Objects.
+#
+# SECRETS are never stored in this file:
+#   local dev   -> .dev.vars (git-ignored):      DATABASE_URL=...  JWT_SECRET=...  GOOGLE_CLIENT_ID=...
+#   production  -> npx wrangler secret put DATABASE_URL
+#                  npx wrangler secret put JWT_SECRET          (e.g. `openssl rand -base64 48`)
+#                  npx wrangler secret put GOOGLE_CLIENT_ID    (the OAuth *Web* client id, not a secret per se)
+# Only non-secret values belong in [vars] below.
+
+name = "hyderabad-tycoon"
+main = "worker/index.js"
+compatibility_date = "2026-10-01"
+compatibility_flags = ["nodejs_compat"]
+workers_dev = true # https://hyderabad-tycoon.<your-subdomain>.workers.dev (add a [[routes]] block for a custom domain)
+
+# Non-secret configuration only.
+[vars]
+APP_NAME = "Hyderabad Tycoon"
+
+# The Vite build output (`npm run build`). /api/* and /ws/* always run the Worker first;
+# every other path is served from the bundle, with SPA fallback to index.html for client
+# routes such as /lobby/ABC234. Headers for assets live in public/_headers (-> dist/_headers).
+[assets]
+directory = "./dist"
+binding = "ASSETS"
+not_found_handling = "single-page-application"
+run_worker_first = ["/api/*", "/ws/*"]
+
+# One GameRoom object per room code, one UserHub object per user (WebSocket Hibernation).
+[[durable_objects.bindings]]
+name = "GAME_ROOM"
+class_name = "GameRoom"
+
+[[durable_objects.bindings]]
+name = "USER_HUB"
+class_name = "UserHub"
+
+# SQLite-backed Durable Objects (required for new classes on the free plan too).
+# To change the schema of a class later, append a NEW [[migrations]] entry; never edit v1.
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["GameRoom", "UserHub"]
+
+# Workers Logs: `npx wrangler tail`, or the Cloudflare dashboard -> Workers -> Logs.
+[observability]
+enabled = true
+
+[dev]
+port = 8787

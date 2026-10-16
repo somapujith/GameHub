@@ -1,0 +1,59 @@
+# Deploys Hyderabad Tycoon to Cloudflare Workers on every push to main.
+#
+# Repository secrets (Settings -> Secrets and variables -> Actions):
+#   CLOUDFLARE_API_TOKEN   API token created from the "Edit Cloudflare Workers" template
+#   CLOUDFLARE_ACCOUNT_ID  your Cloudflare account id
+#   DATABASE_URL           Neon connection string (used only to run the idempotent migration here)
+#
+# The Worker's own runtime secrets (DATABASE_URL, JWT_SECRET, GOOGLE_CLIENT_ID) live in Cloudflare,
+# set once with `npx wrangler secret put <NAME>`; this workflow never touches them.
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+
+# One deploy at a time; a newer push waits instead of cancelling a deploy half-way.
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Test
+        run: npm test
+
+      - name: Build the web app
+        run: npm run build
+
+      # Additive, idempotent (CREATE ... IF NOT EXISTS / ADD COLUMN IF NOT EXISTS), so it is safe
+      # to run before the new code goes live and safe to repeat. Prints table names + row counts only.
+      - name: Migrate database
+        run: node scripts/migrate.js
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+
+      - name: Deploy to Cloudflare Workers
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: deploy

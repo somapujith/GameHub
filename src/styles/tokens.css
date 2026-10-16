@@ -1,0 +1,76 @@
+/* Design tokens — shared by every screen. Owned by the orchestrator; do not edit. */
+:root {
+  /* night-Hyderabad palette */
+  --bg-0: #0b0820;
+  --bg-1: #140f33;
+  --bg-2: #1d1650;
+  --surface: #241b5c;
+  --surface-2: #2e2475;
+  --surface-3: #3a2f8c;
+  --line: rgba(255, 255, 255, 0.12);
+  --line-strong: rgba(255, 255, 255, 0.24);
+
+  --text: #f7f2ff;
+  --text-dim: #bdb4e6;
+  --text-faint: #867eb3;
+
+  --gold: #ffc857;
+  --gold-2: #ffb100;
+  --saffron: #ff8a3d;
+  --teal: #2ec4b6;
+  --rose: #ff5d73;
+  --lime: #8de05a;
+  --sky: #4cc9f0;
+  --violet: #9b7bff;
+
+  --cream: #fff7e6;
+  --cream-2: #f3e6c8;
+  --ink: #1b1340;
+  --ink-dim: #4a4175;
+
+  --good: #3ddc97;
+  --bad: #ff5d73;
+  --warn: #ffb100;
+
+  /* player colours (same order as engine PLAYER_COLORS) */
+  --p1: #ff4d6d;
+  --p2: #ffd23f;
+  --p3: #3ddc97;
+  --p4: #4cc9f0;
+  --p5: #b794f6;
+  --p6: #ff9f43;
+
+  --font-display: 'Baloo Tammudu 2', 'Noto Sans Telugu', system-ui, sans-serif;
+  --font-body: 'Noto Sans Telugu', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+
+  --radius-s: 8px;
+  --radius-m: 14px;
+  --radius-l: 22px;
+  --radius-pill: 999px;
+
+  --shadow-1: 0 2px 8px rgba(0, 0, 0, 0.35);
+  --shadow-2: 0 10px 30px rgba(0, 0, 0, 0.45);
+  --glow-gold: 0 0 24px rgba(255, 200, 87, 0.45);
+
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-7: 48px;
+
+  --tap: 44px;
+  --gutter: 16px;
+
+  --z-board: 1;
+  --z-token: 5;
+  --z-toast: 50;
+  --z-sheet: 60;
+  --z-modal: 70;
+
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+
+  color-scheme: dark;
+}

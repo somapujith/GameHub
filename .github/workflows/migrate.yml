@@ -1,0 +1,38 @@
+# Manual, migrations-only run (no build, no deploy). Actions tab -> "Migrate database" -> Run workflow.
+#
+# Repository secret needed: DATABASE_URL (Neon connection string).
+# db/schema.sql only contains idempotent, additive statements; the output lists table names and
+# row counts, never the connection string.
+name: Migrate database
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: migrate-production
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Apply db/schema.sql
+        run: node scripts/migrate.js
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
