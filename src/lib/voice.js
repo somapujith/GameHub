@@ -382,7 +382,8 @@ function speak(line, opts) {
     });
     const p = {
       line,
-      actor: actorOf(line.actor),
+      // Lines that are not an actor's (e.g. a Kismet card clip) carry their own subtitle badge.
+      actor: line.badge ? { id: line.actor, tts: { pitch: 1, rate: 1 }, ...line.badge } : actorOf(line.actor),
       priority,
       token: ++seq,
       done: false,

@@ -18,6 +18,7 @@ import { TILES, BOARD_SIZE, JAIL_TILE, MAX_LEVEL } from '@shared/board.js';
 import { sfx } from '../sfx.js';
 import { voice } from '../voice.js';
 import { pickLine, lineForTile } from '../voiceLines.js';
+import { CARD_CLIPS } from '../cardClips.js';
 import { describeEvent } from '../messages.js';
 import { loadSettings } from '../storage.js';
 
@@ -31,7 +32,7 @@ const DEFERRED_MAX_AGE = 4500; // a postponed flavour line is dropped if it woul
 const T = {
   dice: 900,
   afterDice: 620,
-  step: 170,
+  step: 260, // one tile: lift, carry, set down (the pawn animation in board.css spans this time)
   teleportPre: 220,
   teleport: 300,
   land: 380,
@@ -438,12 +439,21 @@ export function createPresenterCore({ meId, initialState, speed: speedOpt = 1, d
         if (ev.teleport || path.length === 0) {
           fx(ev.teleport ? 'card' : 'step');
           if (!(await wait(dl('teleportPre')))) return false;
-          setPos(ev.player, ev.to);
+          // `stepMs` tells the board how long the pawn's lift-and-set-down motion should take.
+          patchDisplay((d) => ({
+            ...d,
+            stepMs: Math.round(dl('teleport') * speed()),
+            players: d.players.map((p) => (p.id === ev.player ? { ...p, pos: ev.to } : p)),
+          }));
           if (ev.teleport) announce(ev);
           return wait(dl('teleport'));
         }
         for (const tile of path) {
-          setPos(ev.player, tile);
+          patchDisplay((d) => ({
+            ...d,
+            stepMs: Math.round(dl('step') * speed()),
+            players: d.players.map((p) => (p.id === ev.player ? { ...p, pos: tile } : p)),
+          }));
           fx('step');
           if (!(await wait(dl('step')))) return false;
         }
@@ -616,7 +626,12 @@ export function createPresenterCore({ meId, initialState, speed: speedOpt = 1, d
       case 'card': {
         fx('card');
         announce(ev);
-        if (ev.kind === 'good') say('card_good', byMe);
+        const clip = CARD_CLIPS[ev.cardId];
+        if (clip && !byMe && !disposed) {
+          // A recorded clip for this card: the players who get paid hear it, the one who drew it does not.
+          deferred = null;
+          speakNow(clip, 'high');
+        } else if (ev.kind === 'good') say('card_good', byMe);
         else if (ev.kind === 'bad') say('card_bad', byMe);
         return wait(dl('card'));
       }

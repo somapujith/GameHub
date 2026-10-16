@@ -481,9 +481,9 @@ describe('kismet cards', () => {
     return ok(roll(s, dice[0], dice[1])); // 0 -> 5 (kismet)
   };
 
-  it('has 17 well-formed cards that never target a kismet tile', () => {
-    expect(KISMET).toHaveLength(17);
-    expect(new Set(KISMET.map((c) => c.id)).size).toBe(17);
+  it('has 18 well-formed cards that never target a kismet tile', () => {
+    expect(KISMET).toHaveLength(18);
+    expect(new Set(KISMET.map((c) => c.id)).size).toBe(18);
     for (const c of KISMET) {
       expect(['good', 'bad', 'neutral']).toContain(c.kind);
       expect(c.title && c.text && /[ఀ-౿]/.test(c.te)).toBeTruthy();
@@ -544,6 +544,15 @@ describe('kismet cards', () => {
     expect(ofType(b.events, 'cash').filter((e) => e.reason === 'card' && e.player === 'p1')[0]).toMatchObject({ delta: -200, other: 'p0' });
     const p = draw('biryani_promise');
     expect(p.state.players.map((c) => c.cash)).toEqual([14700, 15150, 15150]);
+  });
+
+  it('Paytm Karo makes the drawer pay ₹100 to every other player', () => {
+    const r = draw('paytm_100');
+    expect(r.state.players.map((c) => c.cash)).toEqual([14800, 15100, 15100]);
+    expect(ofType(r.events, 'card')[0]).toMatchObject({ cardId: 'paytm_100', player: 'p0', kind: 'bad' });
+    const paid = ofType(r.events, 'cash').filter((e) => e.reason === 'card' && e.delta === 100);
+    expect(paid.map((e) => e.player).sort()).toEqual(['p1', 'p2']);
+    expect(paid.every((e) => e.other === 'p0')).toBe(true);
   });
 
   it('reshuffles an exhausted deck', () => {

@@ -1,5 +1,6 @@
-// The Hyderabad board: 28 tiles on an 8x8 ring, laid out like the reference screenshot
-// (START bottom-left, AUCTION bottom-right, JAIL top-right, KISMET top-left; clockwise order).
+// The Hyderabad board: 28 tiles on an 8x8 ring. START is bottom-left and play runs CLOCKWISE:
+// up the left side, along the top, down the right side and back along the bottom. So AUCTION is
+// the top-left corner, JAIL the top-right and the KISMET corner the bottom-right.
 // Pure data + tiny helpers. Shared by the browser and the Cloudflare Worker.
 
 export const BOARD_SIZE = 28;
@@ -132,10 +133,13 @@ export function upgradeCost(tile) {
   return Math.max(50, Math.round((tile.price * UPGRADE_RATIO) / 50) * 50);
 }
 
-/** Cell on the 8x8 board grid (col,row both 0..7, row 0 = top) for a tile index. */
+/**
+ * Cell on the 8x8 board grid (col,row both 0..7, row 0 = top) for a tile index.
+ * Tile ids ascend CLOCKWISE from START at the bottom-left corner.
+ */
 export function tilePosition(i) {
-  if (i <= 7) return { col: i, row: 7 };
-  if (i <= 14) return { col: 7, row: 7 - (i - 7) };
-  if (i <= 21) return { col: 7 - (i - 14), row: 0 };
-  return { col: 0, row: i - 21 };
+  if (i <= 7) return { col: 0, row: 7 - i }; // left column, bottom -> top
+  if (i <= 14) return { col: i - 7, row: 0 }; // top row, left -> right
+  if (i <= 21) return { col: 7, row: i - 14 }; // right column, top -> bottom
+  return { col: 7 - (i - 21), row: 7 }; // bottom row, right -> left
 }

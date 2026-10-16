@@ -515,7 +515,15 @@
   width: 0;
   height: 0;
   --d: calc(var(--pd, 0.5) * 12.2cqw);
-  transition: left 170ms ease-in-out, top 170ms ease-in-out;
+  /*
+   * One tile = one "lift, carry, set down" taking --hb-step (set from the presenter). The pawn is
+   * picked up for the first ~22% of that time, slides across in the middle ~56% while it is held up
+   * (see hb-lift below), then is placed on the new tile.
+   */
+  --step: var(--hb-step, 260ms);
+  transition:
+    left calc(var(--step) * 0.56) cubic-bezier(0.45, 0.05, 0.4, 1) calc(var(--step) * 0.22),
+    top calc(var(--step) * 0.56) cubic-bezier(0.45, 0.05, 0.4, 1) calc(var(--step) * 0.22);
 }
 
 .hb-pawn__body {
@@ -545,7 +553,10 @@
   inset: 0;
 }
 .hb-pawn__hop.is-step {
-  animation: hb-hop 170ms ease-out;
+  animation: hb-lift var(--step) cubic-bezier(0.3, 0.6, 0.4, 1) both;
+}
+.hb-pawn__shadow.is-step {
+  animation: hb-shadow var(--step) ease-in-out both;
 }
 
 .hb-pawn__disc {
@@ -591,10 +602,23 @@
   animation: hb-bob 0.7s ease-in-out infinite alternate;
 }
 
-@keyframes hb-hop {
-  0% { transform: translateY(0) scale(1, 1); }
-  45% { transform: translateY(-36%) scale(0.96, 1.05); }
+/* Picked up (stretches a little as it leaves the board), carried over in a low arc, set down with a squash. */
+@keyframes hb-lift {
+  0%   { transform: translateY(0) scale(1, 1); }
+  10%  { transform: translateY(-10%) scale(0.95, 1.1); }
+  24%  { transform: translateY(-88%) scale(1.14, 1.14); }
+  50%  { transform: translateY(-104%) scale(1.16, 1.16); }
+  76%  { transform: translateY(-88%) scale(1.14, 1.14); }
+  90%  { transform: translateY(0) scale(1.12, 0.86); }
   100% { transform: translateY(0) scale(1, 1); }
+}
+/* The shadow stays on the board: it fades and shrinks while the pawn is held up, snaps back when placed. */
+@keyframes hb-shadow {
+  0%   { transform: scale(1, 1); opacity: 1; }
+  24%  { transform: scale(0.62, 0.7); opacity: 0.35; }
+  76%  { transform: scale(0.62, 0.7); opacity: 0.35; }
+  90%  { transform: scale(1.2, 1.1); opacity: 1; }
+  100% { transform: scale(1, 1); opacity: 1; }
 }
 @keyframes hb-bob {
   from { transform: translateY(0); }

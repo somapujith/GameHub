@@ -107,6 +107,13 @@ export const KISMET = [
     effect: { type: 'payAll', amount: 150 },
   },
   {
+    // The client plays a recorded "Paytm karo 100 rs" clip for the players who get paid (src/lib/cardClips.js).
+    id: 'paytm_100', kind: 'bad', title: 'Paytm Karo!',
+    text: 'Everyone is waiting: Paytm ₹100 to each player.',
+    te: 'పేటీఎం కరో! ప్రతి ఆటగాడికి ₹100 పంపండి.',
+    effect: { type: 'payAll', amount: 100 },
+  },
+  {
     id: 'jail_free', kind: 'good', title: 'Get Out of Jail Free',
     text: 'Your lawyer friend from Banjara Hills has your back. Keep this card and skip jail once.',
     te: 'బంజారా హిల్స్ లాయర్ ఫ్రెండ్ అండగా ఉన్నాడు. ఈ కార్డ్ దాచుకోండి, ఒకసారి జైలు నుంచి ఉచితంగా బయటపడండి.',

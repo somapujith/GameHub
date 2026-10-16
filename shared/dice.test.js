@@ -528,7 +528,8 @@ describe('sampleCombo / rollDice', () => {
 });
 
 // ---------------------------------------------------------------- empirical
-describe('empirical distributions (200,000 rolls)', () => {
+// 200,000 simulated rolls each: slow on a busy machine or CI runner, so allow far more than the 5 s default.
+describe('empirical distributions (200,000 rolls)', { timeout: 60_000 }, () => {
   const N = 200000;
 
   it('fair mode approximates the theory', () => {
