@@ -1,6 +1,7 @@
 // Voice lines: plays a recorded clip from /voices/manifest.json when there is one, otherwise the
-// browser's Telugu text-to-speech (lang te-IN). If the device has no Telugu voice the line is still
-// emitted (so the subtitle toast shows for ~3.5 s) and the promise resolves afterwards.
+// browser's Telugu text-to-speech (lang te-IN). If the device has no Telugu voice, the Tenglish text
+// is read by an English (India) voice instead. Either way the line is emitted so the subtitle toast
+// shows, and the promise resolves afterwards.
 //
 //   voice.init()                      warm up the manifest and the TTS voice list (optional, idempotent)
 //   voice.speak(line, { priority })   -> Promise<void>, resolves when the line is over or was dropped
@@ -9,7 +10,8 @@
 //                                        'low'    like normal, and not within 1.5 s after the last line
 //   voice.stop()                      stop the current line
 //   voice.onLine(cb) -> unsubscribe   cb({ line, actor, phase: 'start' | 'end' })  (feeds VoiceToast)
-//   voice.ttsAvailable()              true when a Telugu TTS voice is installed
+//   voice.ttsAvailable()              true when the browser can speak (Telugu voice or English fallback)
+//   voice.ttsMode()                   'telugu' | 'tenglish' | 'none'
 //   voice.isSpeaking() / voice.whenIdle()   helpers for the presenter ("never talk over yourself")
 //
 // Honours settings.voice / tts / volume / actors. Never throws. Safe to import during SSR.
@@ -33,6 +35,7 @@ let manifest = null; // { lineId: 'actor/lineId.mp3' }
 let manifestPromise = null;
 
 let synthVoice = null; // chosen Telugu SpeechSynthesisVoice
+let fbVoice = null; // fallback English (India) voice that reads the Tenglish text when there is no Telugu voice
 let voicesPromise = null;
 let keepAlive = null; // keep a reference to the live utterance (Chrome GC bug)
 
@@ -117,6 +120,28 @@ function pickTeluguVoice() {
   }
 }
 
+/**
+ * Most laptops and many phones have no Telugu voice. The Tenglish line (Telugu in Latin letters) is
+ * readable by an English voice, so prefer en-IN, then any English voice. Null lets the browser use
+ * its default voice for lang en-IN.
+ */
+function pickFallbackVoice() {
+  const synth = getSynth();
+  if (!synth) return null;
+  try {
+    const voices = synth.getVoices ? synth.getVoices() : [];
+    return (
+      voices.find((v) => /^en[-_]IN$/i.test(v.lang || '')) ||
+      voices.find((v) => /^en([-_]|$)/i.test(v.lang || '')) ||
+      voices.find((v) => v.default) ||
+      voices[0] ||
+      null
+    );
+  } catch {
+    return null;
+  }
+}
+
 /** Resolves once the voice list is known (immediately when it is already there). */
 function loadVoices() {
   if (voicesPromise) return voicesPromise;
@@ -131,6 +156,7 @@ function loadVoices() {
       }
     };
     synthVoice = pickTeluguVoice();
+    fbVoice = pickFallbackVoice();
     if (synthVoice || listLen() > 0) return resolve(synthVoice);
     // Chrome fills the list asynchronously; wait for `voiceschanged` (but not forever).
     let finished = false;
@@ -140,6 +166,7 @@ function loadVoices() {
       finished = true;
       clearTimeout(timer);
       synthVoice = pickTeluguVoice();
+      fbVoice = pickFallbackVoice();
       resolve(synthVoice);
     };
     timer = setTimeout(done, 1500);
@@ -164,6 +191,7 @@ function init() {
       // Voices may arrive late or change (OS language packs): keep the selection fresh.
       synth.addEventListener('voiceschanged', () => {
         synthVoice = pickTeluguVoice();
+        fbVoice = pickFallbackVoice();
       });
     } catch {
       /* ignore */
@@ -252,12 +280,18 @@ function startClip(p, url, s) {
 
 function startTts(p, s) {
   const synth = getSynth();
-  if (!synth || !synthVoice) return false;
+  if (!synth) return false;
   try {
-    const u = new window.SpeechSynthesisUtterance(p.line.te || p.line.tn || p.line.en || '');
+    // Telugu voice installed: speak the Telugu script. Otherwise speak the Tenglish text with an
+    // English (India) voice, so the line is still heard on devices without Telugu speech.
+    const useTelugu = !!synthVoice;
+    const text = useTelugu ? p.line.te || p.line.tn || p.line.en || '' : p.line.tn || p.line.en || p.line.te || '';
+    if (!text) return false;
+    const u = new window.SpeechSynthesisUtterance(text);
     const t = (p.actor && p.actor.tts) || {};
-    u.voice = synthVoice;
-    u.lang = synthVoice.lang || 'te-IN';
+    const chosen = useTelugu ? synthVoice : fbVoice;
+    if (chosen) u.voice = chosen;
+    u.lang = (chosen && chosen.lang) || (useTelugu ? 'te-IN' : 'en-IN');
     u.pitch = Math.min(2, Math.max(0, Number(t.pitch) || 1));
     u.rate = Math.min(2, Math.max(0.1, Number(t.rate) || 1));
     u.volume = Math.min(1, Math.max(0, Number(s.volume ?? 0.8)));
@@ -266,7 +300,7 @@ function startTts(p, s) {
     p.utter = u;
     keepAlive = u;
     clearTimers(p);
-    p.timer = setTimeout(() => finish(p), Math.max(6000, (p.line.te || '').length * 220));
+    p.timer = setTimeout(() => finish(p), Math.max(6000, text.length * 220));
     const go = () => {
       if (p.done || p.utter !== u) return;
       try {
@@ -303,6 +337,7 @@ function fallbackToTts(p, s) {
     loadVoices().then(() => {
       if (p.done) return;
       if (!synthVoice) synthVoice = pickTeluguVoice();
+      if (!fbVoice) fbVoice = pickFallbackVoice();
       if (!startTts(p, s)) toastOnly(p);
     });
     return;
@@ -385,18 +420,28 @@ function onLine(cb) {
   return () => listeners.delete(cb);
 }
 
+/** True when the browser can speak lines at all (a Telugu voice, or the Tenglish English fallback). */
 function ttsAvailable() {
   try {
-    if (!getSynth()) return false;
-    if (!synthVoice) synthVoice = pickTeluguVoice();
-    return !!synthVoice;
+    return !!getSynth();
   } catch {
     return false;
+  }
+}
+
+/** 'telugu' = real Telugu voice, 'tenglish' = English voice reading the Tenglish text, 'none' = no speech. */
+function ttsMode() {
+  try {
+    if (!getSynth()) return 'none';
+    if (!synthVoice) synthVoice = pickTeluguVoice();
+    return synthVoice ? 'telugu' : 'tenglish';
+  } catch {
+    return 'none';
   }
 }
 
 const isSpeaking = () => !!cur;
 const whenIdle = () => (cur ? cur.promise : Promise.resolve());
 
-export const voice = { init, speak, stop, onLine, ttsAvailable, isSpeaking, whenIdle };
+export const voice = { init, speak, stop, onLine, ttsAvailable, ttsMode, isSpeaking, whenIdle };
 export default voice;
