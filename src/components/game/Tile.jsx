@@ -65,7 +65,8 @@ function inkFor(hex) {
   return L > 0.42 ? '#1b1340' : '#ffffff';
 }
 
-const CORNER_CLASS = { 0: 'hb-tile--bl', 7: 'hb-tile--br', 14: 'hb-tile--tr', 21: 'hb-tile--tl' };
+// Clockwise from START: 0 bottom-left, 7 top-left, 14 top-right, 21 bottom-right (see tilePosition).
+const CORNER_CLASS = { 0: 'hb-tile--bl', 7: 'hb-tile--tl', 14: 'hb-tile--tr', 21: 'hb-tile--br' };
 
 /** Levels 1..MAX_LEVEL-1 are a tiny skyline of pips; MAX_LEVEL is the gold hotel badge. */
 function Pips({ level }) {

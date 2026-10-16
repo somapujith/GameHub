@@ -193,7 +193,7 @@ export function Board({ session, onTileClick, highlightTile = null }) {
           {tiles}
           <CenterStage session={session} odds={oddsUi} />
           {odds && <OddsLayer odds={odds} />}
-          <div className="hb-pawns">
+          <div className="hb-pawns" style={{ '--hb-step': `${Math.max(60, Math.round(session?.display?.stepMs ?? 260))}ms` }}>
             {players.map((p, i) => {
               const mates = crowd.get(p.pos) || NONE;
               return (

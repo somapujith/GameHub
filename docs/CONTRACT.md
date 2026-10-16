@@ -32,7 +32,7 @@ Stack: React 19 + Vite 8 (plain JS/JSX, **no TypeScript**), Cloudflare Worker (H
 ## 2. Board (`shared/board.js`, already written — read it)
 Exports: `BOARD_SIZE=28`, `START_TILE=0`, `AUCTION_TILE=7`, `JAIL_TILE=14`, `KISMET_CORNER=21`, `MAX_LEVEL=4`, `LEVEL_NAMES(_TE)`, `RENT_RATE`, `UPGRADE_RATIO`, `TRANSPORT_RENT`, `UTILITY_MULT`, `SELL_RATIO`, `GROUPS`, `TILES`, `TILE_TYPES`, `GROUP_TILES`, `isBuyable(tile)`, `rentFor(tile, level)`, `upgradeCost(tile)`, `tilePosition(i) → {col,row}` (8x8 grid, row 0 = top).
 Tile: `{ id, type, corner?, name, te, short, price?, group?, art, emoji, lore }`.
-Layout is clockwise from START (bottom-left): bottom row 0..7 (7 = Auction corner, bottom-right), right column 8..14 (14 = Jail, top-right), top row 15..21 (21 = Kismet corner, top-left), left column 22..27, then back to 0.
+Layout is clockwise from START (bottom-left): left column 0..7 going up (7 = Auction corner, top-left), top row 8..14 going right (14 = Jail, top-right), right column 15..21 going down (21 = Kismet corner, bottom-right), bottom row 22..27 going left, then back to 0. `tilePosition()` in `shared/board.js` is the single source of truth.
 Levels: 0 plot, 1 Kirana, 2 Apartments, 3 Mall, 4 Tower, **5 Hotel** (capstone, `MAX_LEVEL = 5`; see 3c). Anything that was hard-coded for "4 levels" must use `MAX_LEVEL`/`LEVEL_NAMES` instead.
 
 ## 3. Engine (`shared/*`) — pure, deterministic, runs in the browser AND the Worker

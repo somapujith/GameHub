@@ -57,3 +57,37 @@ describe('dice landing before pawn movement', () => {
     core.dispose();
   });
 });
+
+describe('Kismet clip: the players who get paid hear it', () => {
+  const play = async (cardEvent) => {
+    vi.useFakeTimers();
+    const initial = createGame({ players: [{ id: 'me' }, { id: 'bot', isBot: true }], seed: 1 });
+    const spoken = [];
+    const core = createPresenterCore({
+      meId: 'me', initialState: initial,
+      deps: {
+        loadSettings: () => ({}),
+        sfx: { play() {} },
+        voice: { stop() {}, speak: (line, opts) => { spoken.push({ id: line.id, priority: opts?.priority }); return Promise.resolve(); } },
+        pickLine: () => null, lineForTile: () => null, describeEvent: () => null,
+      },
+    });
+    core.enqueue([cardEvent], initial);
+    await vi.runAllTimersAsync();
+    core.dispose();
+    return spoken;
+  };
+  const card = (player, cardId) => ({ type: 'card', player, cardId, kind: 'bad', title: 'Paytm Karo!', text: 't', te: 't' });
+
+  it('plays the Paytm clip with high priority when somebody else draws the card', async () => {
+    expect(await play(card('bot', 'paytm_100'))).toEqual([{ id: 'sfx_paytm_100', priority: 'high' }]);
+  });
+
+  it('does not play it for the player who has to pay', async () => {
+    expect((await play(card('me', 'paytm_100'))).map((s) => s.id)).not.toContain('sfx_paytm_100');
+  });
+
+  it('does not play it for other cards', async () => {
+    expect(await play(card('bot', 'biryani_promise'))).toEqual([]);
+  });
+});

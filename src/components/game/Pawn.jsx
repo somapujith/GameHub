@@ -46,7 +46,7 @@ export function pawnPlacement(pos, slot = 0, count = 1) {
  * `slot`/`count` say how many pawns share the tile. Hidden when bankrupt.
  */
 function PawnImpl({ name = '', color = '#ffd23f', pos = 0, slot = 0, count = 1, isTurn = false, jailed = false, bankrupt = false, tileName = '' }) {
-  // Re-key the hop element whenever the pawn moves, so the little hop replays per step.
+  // Re-key the hop and shadow whenever the pawn moves, so the lift-carry-set-down replays per step.
   const [seen, setSeen] = useState(pos);
   const [steps, setSteps] = useState(0);
   if (seen !== pos) {
@@ -70,13 +70,14 @@ function PawnImpl({ name = '', color = '#ffd23f', pos = 0, slot = 0, count = 1, 
   return (
     <div className={cls.join(' ')} style={style} role="img" aria-label={`${name}${tileName ? ` on ${tileName}` : ''}${isTurn ? ', current turn' : ''}`}>
       <span className="hb-pawn__body">
-        <span className="hb-pawn__shadow" />
+        {/* The shadow stays on the board while the pawn is lifted, then tightens as it is set down. */}
+        <span className={`hb-pawn__shadow${steps ? ' is-step' : ''}`} key={`s${steps}`} />
         <span className={`hb-pawn__hop${steps ? ' is-step' : ''}`} key={steps}>
           <span className="hb-pawn__disc">
             <span className="hb-pawn__dot" />
           </span>
+          {isTurn && <span className="hb-pawn__marker" />}
         </span>
-        {isTurn && <span className="hb-pawn__marker" />}
       </span>
     </div>
   );

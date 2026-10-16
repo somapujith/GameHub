@@ -741,6 +741,6 @@ describe('settings (v2)', () => {
     expect(s.trade).toBeNull();
     expect(s.debt).toBeNull();
     expect(s.players[0]).toMatchObject({ jailCards: 0, rollsSinceDouble: 0, rentStreak: 0 });
-    expect(s.deck).toHaveLength(17);
+    expect(s.deck).toHaveLength(18);
   });
 });
