@@ -55,7 +55,7 @@ Tests: `npm test` (Vitest: engine, client helpers and the Worker: validation, JW
 4. **Authorized JavaScript origins** (exact origins, no paths, no trailing slash):
    * `http://localhost:5173` (Vite dev)
    * `http://localhost:8787` (Worker dev)
-   * your production origin, e.g. `https://hyderabad-tycoon.<your-subdomain>.workers.dev` and/or your custom domain
+   * your production origin, e.g. `https://gamehub.<your-subdomain>.workers.dev` and/or your custom domain
 5. No redirect URIs are needed (the app uses the Google Identity Services button + ID-token callback).
 6. Copy the **Client ID** into `.dev.vars` as `GOOGLE_CLIENT_ID` (and into the production secret, below). The client *secret* is not used.
 
@@ -90,28 +90,30 @@ DATABASE_URL='postgresql://…' npm run migrate   # or put it in .dev.vars and r
 npm run deploy                                  # = npm run build && wrangler deploy
 ```
 
-The first `wrangler deploy` creates the Worker `hyderabad-tycoon`, applies the Durable Object migration (`v1`: `GameRoom`, `UserHub`, SQLite-backed) and prints the URL, `https://hyderabad-tycoon.<your-subdomain>.workers.dev`.
+The first `wrangler deploy` creates the Worker `gamehub`, applies the Durable Object migration (`v1`: `GameRoom`, `UserHub`, SQLite-backed) and prints the URL, `https://gamehub.<your-subdomain>.workers.dev`.
 
 5. **Add that URL (and any custom domain) to the Google OAuth client's *Authorized JavaScript origins*** (Credentials → your Web client). Without it the Google button shows an origin error. For a custom domain, add a `[[routes]]` block to `wrangler.toml` (`pattern = "play.example.com"`, `custom_domain = true`) and redeploy.
 6. **Verify**: `curl https://<your-worker-url>/api/health` → `{"ok":true,"time":"…","db":true}`. `db:false` means the Worker cannot reach Neon (check `DATABASE_URL`). Then open the site, play as guest, create a room.
-7. **Logs**: `npx wrangler tail` (live) or Cloudflare dashboard → Workers → hyderabad-tycoon → Logs (observability is enabled).
+7. **Logs**: `npx wrangler tail` (live) or Cloudflare dashboard → Workers → gamehub → Logs (observability is enabled).
 8. **Rollback**: `npx wrangler deployments list`, then `npx wrangler rollback [version-id]`. Database changes are additive/idempotent, so rolling the code back is safe.
 
 Dry run without logging in (bundles, checks config, uploads nothing): `npm run build && npx wrangler deploy --dry-run --outdir /tmp/out`.
 
 ### Continuous deployment (GitHub Actions)
 
-`.github/workflows/deploy.yml` runs on every push to `main`: install → `npm test` → `npm run build` → `node scripts/migrate.js` → `wrangler deploy` (via `cloudflare/wrangler-action`). `.github/workflows/migrate.yml` is a manual (*Run workflow*) migrations-only job.
+`.github/workflows/deploy.yml` runs on every push to `main`: check secrets → install → `npm test` → `npm run build` → `node scripts/migrate.js` → `wrangler deploy` (via `cloudflare/wrangler-action`) → copy the runtime secrets into the Worker. `.github/workflows/migrate.yml` is a manual (*Run workflow*) migrations-only job.
 
-Create these **repository secrets** (Settings → Secrets and variables → Actions):
+Create these **repository secrets** (Settings → Secrets and variables → Actions), all five required. The run stops at its first step, naming any that are missing:
 
 | Secret | Value |
 |---|---|
-| `CLOUDFLARE_API_TOKEN` | Cloudflare → My Profile → API Tokens → Create Token → template **Edit Cloudflare Workers** |
+| `CLOUDFLARE_API_TOKEN` | Cloudflare → Manage Account → Account API tokens → Create Token → template **Edit Cloudflare Workers** (an R2 token cannot deploy a Worker) |
 | `CLOUDFLARE_ACCOUNT_ID` | Cloudflare dashboard → Workers & Pages → Account ID (right sidebar) |
-| `DATABASE_URL` | the production Neon connection string (only used for the migration step) |
+| `DATABASE_URL` | the production Neon connection string (migration step, and copied into the Worker) |
+| `JWT_SECRET` | a new random string for production, e.g. `openssl rand -base64 48` |
+| `GOOGLE_CLIENT_ID` | the OAuth Web client id (public) |
 
-The Worker's runtime secrets (`DATABASE_URL`, `JWT_SECRET`, `GOOGLE_CLIENT_ID`) are set once in Cloudflare with `wrangler secret put`; the workflows do not touch them. Do the manual first deploy (above) before enabling the workflow, or at least run the three `secret put` commands first.
+With the secrets in place there is no manual `wrangler secret put`: the last step of the workflow writes `DATABASE_URL`, `JWT_SECRET` and `GOOGLE_CLIENT_ID` into the Worker on every deploy. To rotate one, change the GitHub secret and re-run the workflow. You can set secrets without pasting them anywhere shared by running `gh secret set NAME` in your own terminal, which prompts for the value.
 
 ## API summary
 

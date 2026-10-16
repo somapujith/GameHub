@@ -7,11 +7,11 @@
 #                  npx wrangler secret put GOOGLE_CLIENT_ID    (the OAuth *Web* client id, not a secret per se)
 # Only non-secret values belong in [vars] below.
 
-name = "hyderabad-tycoon"
+name = "gamehub" # must match the Worker name in the Cloudflare dashboard (workers.dev URL = gamehub.<subdomain>.workers.dev)
 main = "worker/index.js"
 compatibility_date = "2026-10-01"
 compatibility_flags = ["nodejs_compat"]
-workers_dev = true # https://hyderabad-tycoon.<your-subdomain>.workers.dev (add a [[routes]] block for a custom domain)
+workers_dev = true # https://gamehub.<your-subdomain>.workers.dev (add a [[routes]] block for a custom domain)
 
 # Non-secret configuration only.
 [vars]
