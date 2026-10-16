@@ -3,13 +3,14 @@ import { Link } from 'react-router-dom';
 import { Avatar } from '@/components/art/index.js';
 import { api, errorMessage } from '@/lib/api.js';
 import { useUserEvents } from '@/lib/auth.jsx';
+import { paths } from '@/platform/paths.js';
 import { applyPresence, normalizeFriends } from './friendsModel.js';
 import '@/styles/online.css';
 
 const RESEND_AFTER = 30000;
 
-/** Lobby panel: one tap invites an online friend to this room (POST /api/invites). */
-export default function InviteFriends({ code, onNotify }) {
+/** Lobby panel: one tap invites an online friend to this room (POST /api/invites; the server adds the game's name). */
+export default function InviteFriends({ code, gameName, onNotify }) {
   const [data, setData] = useState(null); // null = loading
   const [error, setError] = useState(null);
   const [sent, setSent] = useState({}); // userId -> 'sending' | 'sent'
@@ -62,9 +63,9 @@ export default function InviteFriends({ code, onNotify }) {
   };
 
   return (
-    <section className="ho-card ho-invite" aria-label="Invite friends">
+    <section className="ho-card ho-invite" aria-label={gameName ? `Invite friends to ${gameName}` : 'Invite friends'}>
       <div className="ho-card__head">
-        <h2 className="ho-h2">Invite friends</h2>
+        <h2 className="ho-h2">{gameName ? `Invite friends to ${gameName}` : 'Invite friends'}</h2>
         {data && data.friends.length > 0 && <span className="ho-muted">{data.friends.filter((f) => f.online).length} online</span>}
       </div>
 
@@ -86,7 +87,7 @@ export default function InviteFriends({ code, onNotify }) {
         </ul>
       ) : data.friends.length === 0 ? (
         <p className="ho-empty">
-          No friends yet. Share the link above, or <Link to={`/friends?room=${code}`}>add friends</Link> to invite them in one tap.
+          No friends yet. Share the link above, or <Link to={`${paths.friends()}?room=${code}`}>add friends</Link> to invite them in one tap.
         </p>
       ) : (
         <ul className="ho-list">

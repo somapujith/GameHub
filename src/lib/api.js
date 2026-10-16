@@ -87,6 +87,30 @@ export const api = {
   del: (path, opts) => request('DELETE', path, undefined, opts),
 };
 
+const enc = encodeURIComponent;
+
+/** GET /api/rooms/:code -> { exists, gameId, visibility, status, players (count), maxPlayers, hostName, settings, isMember }. */
+export const getRoom = (code, opts) => api.get(`/api/rooms/${enc(code)}`, opts);
+
+/**
+ * POST /api/rooms -> { code, gameId }. Only the fields you pass are sent (the server fills defaults;
+ * a missing `gameId` means the first game).
+ */
+export function createRoom({ gameId, settings, maxPlayers, visibility } = {}, opts) {
+  const body = {};
+  if (gameId) body.gameId = gameId;
+  if (settings && typeof settings === 'object') body.settings = settings;
+  if (Number.isInteger(maxPlayers)) body.maxPlayers = maxPlayers;
+  if (visibility === 'public' || visibility === 'private') body.visibility = visibility;
+  return api.post('/api/rooms', body, opts);
+}
+
+/** GET /api/friends/by-code/:friendCode -> { user: { id, name, avatar, level, friendCode, relation } } (signed-in, non-guest). */
+export const getFriendByCode = (friendCode, opts) => api.get(`/api/friends/by-code/${enc(friendCode)}`, opts);
+
+/** POST /api/invites: push an invite to room `code` to a friend (the server adds the game's id and name). */
+export const sendInvite = (code, userId, opts) => api.post('/api/invites', { code, userId }, opts);
+
 /** Best human message for anything thrown by `api.*` (or anything else). */
 export function errorMessage(err, fallback = 'Something went wrong') {
   if (err && typeof err.message === 'string' && err.message) {

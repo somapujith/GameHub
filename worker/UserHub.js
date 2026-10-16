@@ -1,6 +1,6 @@
 // UserHub: one Durable Object per user. Holds the user's `/ws/user` sockets (WebSocket
 // Hibernation API) and relays real-time notifications to them:
-//   {t:'friend_request',from}, {t:'friend_accepted',by}, {t:'invite',from,code},
+//   {t:'friend_request',from}, {t:'friend_accepted',by}, {t:'invite',from,code,gameId,gameName},
 //   {t:'presence',userId,online}
 // Online = the hub has at least one live socket. When that flips, friends are told
 // (best effort, debounced so a page reload does not flap the presence dot).

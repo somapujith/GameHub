@@ -1,86 +1,116 @@
 import { Link } from 'react-router-dom';
-import { Icon } from '../icons.jsx';
-import { AvatarRing, EmptyState, Skeleton } from '../ui.jsx';
-import { useRemote } from '../net.js';
+import { paths } from '@/platform/paths.js';
+import HubIcon from '@/platform/game/HubIcon.jsx';
+import Ava from '@/platform/home/Ava.jsx';
+import { useApi, useApiGate } from '@/platform/home/useApi.js';
 import { useAccount } from '../hooks.js';
 
-/** Friends online. Degrades to sign-in / empty / offline states; never throws. */
+/** A friendly inline message with an optional action, used for every non-list state of the strip. */
+function Prompt({ icon, title, children, action, quiet }) {
+  return (
+    <div className={`hh2-prompt ${quiet ? 'hh2-prompt--quiet' : ''}`}>
+      <span className="hh2-prompt__icon" aria-hidden="true">
+        <HubIcon name={icon} size={22} />
+      </span>
+      <p className="hh2-prompt__text">
+        <b>{title}</b>
+        <span>{children}</span>
+      </p>
+      {action}
+    </div>
+  );
+}
+
+/** Home > "Friends online" strip. Signed-out and guest players get a sign-in prompt; network trouble degrades quietly. */
 export default function FriendsStrip() {
   const { account, guest, loading } = useAccount();
-  const { status, data, reload } = useRemote('/api/friends', { enabled: account });
+  const { ready } = useApiGate();
+  const remote = useApi('/api/friends', { enabled: ready && account });
+  const { data, reload } = remote;
+  // `ready` is false while auth boots and when the API is unreachable (static dev); treat the latter as offline.
+  const status = account && !ready && !loading ? 'offline' : remote.status;
   const friends = Array.isArray(data?.friends) ? data.friends : [];
   const incoming = Array.isArray(data?.incoming) ? data.incoming.length : 0;
   const sorted = [...friends].sort((a, b) => Number(!!b.online) - Number(!!a.online));
   const online = friends.filter((f) => f.online).length;
 
   let body;
-  if (loading || (account && status === 'loading')) {
+  if (loading || (account && (status === 'loading' || status === 'idle'))) {
     body = (
-      <div className="hh-friends__row" aria-hidden="true">
-        {[0, 1, 2, 3].map((i) => (
-          <span key={i} className="hh-friend hh-friend--skel">
-            <Skeleton w={52} h={52} r={26} />
-            <Skeleton w={44} h={10} />
-          </span>
+      <ul className="hub-row hub-row--tight hh2-friends__rail" aria-hidden="true">
+        {[0, 1, 2, 3, 4, 5].map((i) => (
+          <li key={i} className="hh2-friend">
+            <span className="hub-skel hub-skel--dot" style={{ width: 58, height: 58 }} />
+            <span className="hub-skel hub-skel--line" style={{ width: 44, height: 10 }} />
+          </li>
         ))}
-      </div>
+      </ul>
     );
   } else if (!account) {
     body = (
-      <EmptyState
+      <Prompt
         icon="users"
         title={guest ? 'Friends need a full account' : 'Play with friends'}
         action={
-          <Link to="/login?next=/friends" className="btn btn--primary btn--sm">
-            <Icon name="login" size={16} /> {guest ? 'Sign in with Google' : 'Sign in'}
+          <Link to={paths.login(paths.hub())} className="hub-btn hub-btn--primary hub-btn--sm">
+            {guest ? 'Sign in with Google' : 'Sign in'}
           </Link>
         }
       >
-        {guest ? 'Guests can join rooms, but friends and rankings are for signed-in players.' : 'Sign in to add friends, see who is online and invite them to a room.'}
-      </EmptyState>
+        {guest ? 'Guests can join tables. Sign in with Google to add friends and see who is online.' : 'Sign in to add friends, see who is online and invite them to a table.'}
+      </Prompt>
     );
-  } else if (status === 'offline' || status === 'auth') {
+  } else if (status === 'auth' || status === 'offline' || status === 'error') {
     body = (
-      <EmptyState
+      <Prompt
+        quiet
         icon="wifiOff"
-        title={status === 'auth' ? 'Session expired' : 'Server unreachable'}
+        title={status === 'auth' ? 'Session expired' : 'Friends are offline'}
         action={
           status === 'auth' ? (
-            <Link to="/login?next=/" className="btn btn--primary btn--sm">
-              Sign in again
+            <Link to={paths.login(paths.hub())} className="hub-btn hub-btn--primary hub-btn--sm">
+              Sign in
             </Link>
           ) : (
-            <button type="button" className="btn btn--ghost btn--sm" onClick={reload}>
-              <Icon name="refresh" size={16} /> Retry
+            <button type="button" className="hub-btn hub-btn--soft hub-btn--sm" onClick={reload}>
+              <HubIcon name="refresh" size={16} /> Retry
             </button>
           )
         }
       >
-        {status === 'auth' ? 'Please sign in again to see your friends.' : 'Friends will appear when you are back online. Offline games still work.'}
-      </EmptyState>
+        {status === 'auth' ? 'Sign in again to see your friends.' : 'We cannot reach the server right now. Games against bots still work.'}
+      </Prompt>
     );
   } else if (!friends.length) {
     body = (
-      <EmptyState
+      <Prompt
         icon="users"
         title="No friends yet"
         action={
-          <Link to="/friends" className="btn btn--primary btn--sm">
-            <Icon name="plus" size={16} /> Add a friend
+          <Link to={paths.friends()} className="hub-btn hub-btn--primary hub-btn--sm">
+            <HubIcon name="plus" size={16} /> Add a friend
           </Link>
         }
       >
-        Share your friend code and invite people to a room.
-      </EmptyState>
+        Share your friend code or link and invite people to a table.
+      </Prompt>
     );
   } else {
     body = (
-      <ul className="hh-friends__row">
-        {sorted.slice(0, 12).map((f) => (
-          <li key={f.id} className="hh-friend">
-            <Link to="/friends" className="hh-friend__link" aria-label={`${f.name}, ${f.online ? 'online' : 'offline'}`}>
-              <AvatarRing preset={f.avatar} size={52} dot={f.online ? 'on' : 'off'} tone={f.online ? 'good' : 'dim'} />
-              <span className="hh-friend__name">{f.name}</span>
+      <ul className="hub-row hub-row--tight hh2-friends__rail">
+        <li>
+          <Link to={paths.friends()} className="hh2-friend hh2-friend--invite">
+            <span className="hh2-friend__plus" aria-hidden="true">
+              <HubIcon name="plus" size={22} strokeWidth={2.4} />
+            </span>
+            <span className="hh2-friend__name">Invite</span>
+          </Link>
+        </li>
+        {sorted.slice(0, 14).map((f) => (
+          <li key={f.id}>
+            <Link to={paths.friends()} className={`hh2-friend ${f.online ? 'is-online' : ''}`} aria-label={`${f.name}, ${f.online ? 'online' : 'offline'}`}>
+              <Ava preset={f.avatar} size={56} dot={f.online ? 'on' : 'off'} />
+              <span className="hh2-friend__name">{f.name}</span>
             </Link>
           </li>
         ))}
@@ -88,16 +118,19 @@ export default function FriendsStrip() {
     );
   }
 
+  const showCount = account && status === 'ok' && friends.length > 0;
   return (
-    <section className="hh-card hh-friends" aria-labelledby="hh-friends-h">
-      <div className="hh-card__head">
-        <h2 id="hh-friends-h" className="hh-h2">
-          Friends
-          {account && status === 'ok' && friends.length > 0 && <span className="hh-pill hh-pill--good hh-friends__count">{online} online</span>}
+    <section className="hub-section hh2-friends" aria-labelledby="hh2-friends-h">
+      <div className="hub-section__head">
+        <h2 id="hh2-friends-h" className="hub-section__title">
+          Friends online
+          {showCount && <span className="hub-pill hub-pill--good hh2-pill-gap">{online} online</span>}
         </h2>
-        <Link to="/friends" className="hh-link hh-card__more">
-          {incoming ? `${incoming} request${incoming > 1 ? 's' : ''}` : 'Manage'} <Icon name="chevR" size={16} />
-        </Link>
+        {account && (
+          <Link to={paths.friends()} className="hub-section__more">
+            {incoming ? `${incoming} request${incoming > 1 ? 's' : ''}` : 'Manage'}
+          </Link>
+        )}
       </div>
       {body}
     </section>

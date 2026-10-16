@@ -2,14 +2,14 @@ import { Hono } from 'hono';
 import { query } from '../db.js';
 import { HttpError } from '../db.js';
 import { requireUser, clearSessionCookie, isSecureRequest } from '../auth.js';
-import { USER_COLUMNS, rowToUser } from '../users.js';
+import { USER_COLUMNS, rowToUser, loadGameStats } from '../users.js';
 import { validateName, parseAvatar } from '../validate.js';
 import { limit } from '../ratelimit.js';
 import { readJson } from '../http.js';
 
 const me = new Hono();
 
-// GET /api/me -> { user|null }  (also refreshes last_seen)
+// GET /api/me -> { user|null }  (also refreshes last_seen; user.gameStats = { [gameId]: { games, wins, bestScore, rating } })
 me.get('/', async (c) => {
   const session = c.get('session');
   if (!session) return c.json({ user: null });
@@ -18,7 +18,7 @@ me.get('/', async (c) => {
     c.header('Set-Cookie', clearSessionCookie(isSecureRequest(c.req.raw)));
     return c.json({ user: null });
   }
-  return c.json({ user: rowToUser(rows[0]) });
+  return c.json({ user: rowToUser(rows[0], await loadGameStats(c.env, rows[0].id)) });
 });
 
 // PATCH /api/me { name?, avatar? }
@@ -38,10 +38,11 @@ me.patch('/', requireUser, limit('me-patch', 30, 60), async (c) => {
     params.push(a);
     sets.push(`avatar = $${params.length}`);
   }
-  if (!sets.length) return c.json({ user: rowToUser(c.get('user')) });
+  const stats = await loadGameStats(c.env, c.get('user').id);
+  if (!sets.length) return c.json({ user: rowToUser(c.get('user'), stats) });
   // `sets` only ever contains the fixed fragments built above; values are bound parameters.
   const rows = await query(c.env, `UPDATE users SET ${sets.join(', ')} WHERE id = $1 RETURNING ${USER_COLUMNS}`, params);
-  return c.json({ user: rowToUser(rows[0]) });
+  return c.json({ user: rowToUser(rows[0], stats) });
 });
 
 export default me;

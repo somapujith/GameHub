@@ -25,7 +25,7 @@ function makeParts() {
   }));
 }
 
-/** Daily reward with a 7-day streak ladder and a coin-burst claim animation. */
+/** Daily reward with a 7-day streak ladder and a coin-burst claim animation (hub styling, `.hh2-daily*`). */
 export default function DailyReward() {
   const [profile] = useProfile();
   const toast = useToast();
@@ -69,34 +69,30 @@ export default function DailyReward() {
   const todaysCoins = dailyRewardFor(curStreak);
 
   return (
-    <section className={`hh-card hh-daily ${claimedToday ? 'is-claimed' : 'is-ready'}`} aria-labelledby="hh-daily-h">
-      <div className="hh-daily__glow" aria-hidden="true" />
-      <div className="hh-daily__head">
-        <span className="hh-daily__gift" aria-hidden="true">
+    <section className={`hub-panel hh2-daily ${claimedToday ? 'is-claimed' : 'is-ready'}`} aria-labelledby="hh2-daily-h">
+      <div className="hh2-daily__glow" aria-hidden="true" />
+      <div className="hh2-daily__head">
+        <span className="hh2-daily__gift" aria-hidden="true">
           <Icon name="gift" size={26} />
         </span>
-        <div className="hh-daily__titles">
-          <h2 id="hh-daily-h" className="hh-h2">
+        <div className="hh2-daily__titles">
+          <h2 id="hh2-daily-h" className="hub-section__title">
             Daily reward
           </h2>
-          <p className="hh-daily__sub">
-            {claimedToday ? 'Claimed. See you tomorrow!' : continues || streak === 0 ? 'Your coins are waiting.' : 'Streak lost. Start a new one today.'}
-          </p>
+          <p className="hh2-daily__sub">{claimedToday ? 'Claimed. See you tomorrow!' : continues || streak === 0 ? 'Your coins are waiting.' : 'Streak lost. Start a new one today.'}</p>
         </div>
-        <span className="hh-daily__streak" title="Day streak">
+        <span className="hh2-daily__streak" title="Day streak">
           <Icon name="flame" size={18} />
           <b>{streak}</b>
           <small>day{streak === 1 ? '' : 's'}</small>
         </span>
       </div>
 
-      <ol className="hh-daily__days" aria-label="7-day streak">
+      <ol className="hh2-daily__days" aria-label="7-day streak">
         {days.map((d) => (
-          <li key={d.n} className={`hh-daypip ${d.done ? 'is-done' : ''} ${d.current ? 'is-current' : ''} ${d.n === 7 ? 'is-big' : ''}`}>
-            <span className="hh-daypip__dot">
-              {d.done ? <Icon name="check" size={14} strokeWidth={3.2} /> : d.n === 7 ? <Icon name="gift" size={14} /> : <CoinIcon size={14} />}
-            </span>
-            <span className="hh-daypip__label">{d.coins}</span>
+          <li key={d.n} className={`hh2-daypip ${d.done ? 'is-done' : ''} ${d.current ? 'is-current' : ''} ${d.n === 7 ? 'is-big' : ''}`}>
+            <span className="hh2-daypip__dot">{d.done ? <Icon name="check" size={14} strokeWidth={3.2} /> : d.n === 7 ? <Icon name="gift" size={14} /> : <CoinIcon size={14} />}</span>
+            <span className="hh2-daypip__label">{d.coins}</span>
             <span className="sr-only">
               Day {d.n}, {d.coins} coins, {d.done ? 'claimed' : d.current ? 'ready to claim' : 'upcoming'}
             </span>
@@ -104,13 +100,8 @@ export default function DailyReward() {
         ))}
       </ol>
 
-      <div className="hh-daily__action">
-        <button
-          type="button"
-          className={`btn btn--lg btn--block ${claimedToday ? 'btn--ghost' : 'btn--primary hh-pulse'}`}
-          disabled={claimedToday || busy}
-          onClick={claim}
-        >
+      <div className="hh2-daily__action">
+        <button type="button" className={`hub-btn hub-btn--lg hub-btn--block ${claimedToday ? 'hub-btn--soft' : 'hub-btn--accent'}`} disabled={claimedToday || busy} onClick={claim}>
           {claimedToday ? (
             <>
               <Icon name="check" size={20} /> Claimed today
@@ -124,17 +115,13 @@ export default function DailyReward() {
       </div>
 
       {burst && (
-        <div className="hh-burst" key={burst.id} aria-hidden="true">
+        <div className="hh2-burst" key={burst.id} aria-hidden="true">
           {burst.parts.map((p) => (
-            <i
-              key={p.id}
-              className="hh-burst__coin"
-              style={{ '--dx': `${p.dx}px`, '--dy': `${p.dy}px`, '--rot': `${p.rot}deg`, '--delay': `${p.delay}ms`, '--sz': `${p.size}px` }}
-            >
+            <i key={p.id} className="hh2-burst__coin" style={{ '--dx': `${p.dx}px`, '--dy': `${p.dy}px`, '--rot': `${p.rot}deg`, '--delay': `${p.delay}ms`, '--sz': `${p.size}px` }}>
               <CoinIcon size={p.size} />
             </i>
           ))}
-          <span className="hh-burst__gain">+{fmtNum(burst.gain)}</span>
+          <span className="hh2-burst__gain">+{fmtNum(burst.gain)}</span>
         </div>
       )}
     </section>

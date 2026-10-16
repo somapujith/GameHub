@@ -1,4 +1,5 @@
-# Hyderabad Tycoon - one Cloudflare Worker: static React app + /api + /ws + Durable Objects.
+# GameHub (a games marketplace; Hyderabad Tycoon is its first game) - one Cloudflare Worker:
+# static React app + /api + /ws + Durable Objects.
 #
 # SECRETS are never stored in this file:
 #   local dev   -> .dev.vars (git-ignored):      DATABASE_URL=...  JWT_SECRET=...  GOOGLE_CLIENT_ID=...
@@ -15,7 +16,7 @@ workers_dev = true # https://gamehub.<your-subdomain>.workers.dev (add a [[route
 
 # Non-secret configuration only.
 [vars]
-APP_NAME = "Hyderabad Tycoon"
+APP_NAME = "GameHub"
 
 # The Vite build output (`npm run build`). /api/* and /ws/* always run the Worker first;
 # every other path is served from the bundle, with SPA fallback to index.html for client

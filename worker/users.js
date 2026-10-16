@@ -5,9 +5,32 @@ import { levelFromXp } from './xp.js';
 export const USER_COLUMNS =
   'id, google_sub, email, name, avatar, friend_code, is_guest, xp, coins, level, games, wins, best_worth, rent_earned, created_at, last_seen';
 
-/** Full profile (only ever sent to the user themselves). */
-export function rowToUser(r) {
-  return {
+/** user_game_stats rows -> { [gameId]: { games, wins, bestScore, rating } }. */
+export function rowsToGameStats(rows) {
+  const out = {};
+  for (const r of rows || []) {
+    out[r.game_id] = { games: r.games, wins: r.wins, bestScore: r.best_score, rating: r.rating };
+  }
+  return out;
+}
+
+/** The user's per-game numbers. Best effort: a failure gives {} rather than breaking /api/me or login. */
+export async function loadGameStats(env, userId) {
+  try {
+    const rows = await query(
+      env,
+      'SELECT game_id, games, wins, best_score, rating FROM user_game_stats WHERE user_id = $1',
+      [userId],
+    );
+    return rowsToGameStats(rows);
+  } catch {
+    return {};
+  }
+}
+
+/** Full profile (only ever sent to the user themselves). `gameStats` is added when given. */
+export function rowToUser(r, gameStats) {
+  const user = {
     id: r.id,
     name: r.name,
     avatar: r.avatar,
@@ -23,6 +46,8 @@ export function rowToUser(r) {
       rentEarned: Number(r.rent_earned),
     },
   };
+  if (gameStats) user.gameStats = gameStats;
+  return user;
 }
 
 /** What other players may see: no email / stats beyond level. */

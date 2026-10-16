@@ -1,5 +1,5 @@
 /* ==========================================================================
-   Hyderabad Tycoon: online pages (login, friends, join, lobby, online game).
+   GameHub online pages (login, friends, friend link, join, lobby, online-game screens).
    Everything is prefixed .ho- and only needs the CSS variables from tokens.css.
    Mobile first (360px), two columns from 900px.
    ========================================================================== */
@@ -1403,4 +1403,420 @@
 }
 :root[data-motion='reduced'] :is(.ho-btn, .ho-chip, .ho-seg__opt, .ho-switch__thumb, .ho-switch__track, .ho-code__box, .ho-avatar-opt) {
   transition: none;
+}
+
+/* ==========================================================================
+   GameHub marketplace additions: game header, public/private, room preview, game picker, sheet,
+   friend link, schema-driven settings. Games tint these through --ho-accent / --ho-accent-2 / --ho-game-bg.
+   ========================================================================== */
+
+/* ---------- game icon ---------- */
+.ho-gameicon {
+  flex: none;
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+  overflow: hidden;
+  border-radius: 26%;
+  background: linear-gradient(145deg, var(--gi-a, var(--surface-3)), var(--gi-b, var(--surface-2)));
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35), inset 0 0 0 1px rgba(255, 255, 255, 0.16);
+  color: #0f1220;
+}
+.ho-gameicon > svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.ho-gameicon__letter {
+  font-family: var(--font-display);
+  font-weight: 800;
+  line-height: 1;
+}
+
+/* ---------- public / private badge ---------- */
+.ho-vis {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 24px;
+  padding: 0 10px;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--line-strong);
+  background: rgba(255, 255, 255, 0.07);
+  color: var(--text-dim);
+  font-size: 0.76rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+.ho-vis--public {
+  border-color: rgba(61, 220, 151, 0.5);
+  background: rgba(61, 220, 151, 0.13);
+  color: var(--good);
+}
+
+/* ---------- lobby: themed header + accent ---------- */
+.ho-lobby {
+  --ho-accent: var(--gold);
+  --ho-accent-2: var(--gold-2);
+  --ho-game-bg: var(--bg-2);
+}
+.ho-lobbyhead {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  border-radius: var(--radius-l);
+  border: 1px solid var(--line);
+  background:
+    radial-gradient(420px 160px at 0% 0%, color-mix(in srgb, var(--ho-accent) 30%, transparent), transparent 70%),
+    linear-gradient(135deg, color-mix(in srgb, var(--ho-game-bg) 88%, #000), var(--bg-1));
+  box-shadow: var(--shadow-2);
+  overflow: hidden;
+}
+.ho-lobbyhead__main {
+  flex: 1;
+  min-width: 0;
+}
+.ho-lobbyhead .ho-h1 {
+  font-size: clamp(1.4rem, 5vw, 2rem);
+  overflow-wrap: anywhere;
+}
+.ho-lobbyhead__sub {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+  margin-top: 4px;
+}
+.ho-lobby .ho-eyebrow,
+.ho-lobby .ho-count {
+  color: var(--ho-accent);
+}
+.ho-lobby .ho-count {
+  border-color: color-mix(in srgb, var(--ho-accent) 40%, transparent);
+  background: color-mix(in srgb, var(--ho-accent) 14%, transparent);
+}
+.ho-lobby .ho-btn--primary {
+  background: linear-gradient(180deg, var(--ho-accent), var(--ho-accent-2));
+  color: #0f1220;
+  box-shadow: 0 3px 0 color-mix(in srgb, var(--ho-accent-2) 58%, #000), 0 10px 22px color-mix(in srgb, var(--ho-accent-2) 26%, transparent);
+}
+.ho-lobby .ho-btn--primary:active:not(:disabled) {
+  box-shadow: 0 1px 0 color-mix(in srgb, var(--ho-accent-2) 58%, #000);
+}
+.ho-lobby .ho-chip.is-on {
+  border-color: var(--ho-accent);
+  background: color-mix(in srgb, var(--ho-accent) 20%, transparent);
+  color: var(--ho-accent);
+}
+.ho-lobby .ho-seg__opt.is-on {
+  background: linear-gradient(180deg, var(--ho-accent), var(--ho-accent-2));
+  color: #0f1220;
+}
+.ho-lobby .ho-stepper__btn {
+  color: var(--ho-accent);
+}
+.ho-lobby .ho-stepper__btn:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--ho-accent) 16%, transparent);
+}
+.ho-lobby .ho-summary {
+  background: color-mix(in srgb, var(--ho-accent) 9%, transparent);
+  border-color: color-mix(in srgb, var(--ho-accent) 40%, transparent);
+}
+.ho-lobby .ho-bigcode {
+  background: linear-gradient(180deg, #fff, var(--ho-accent) 62%, var(--ho-accent-2));
+  -webkit-background-clip: text;
+  background-clip: text;
+}
+.ho-lobby .ho-linkbtn,
+.ho-lobby .ho-empty a {
+  color: var(--ho-accent);
+}
+.ho-field .ho-field__row {
+  margin-top: var(--space-2);
+}
+
+/* ---------- join: room preview ---------- */
+.ho-roompreview {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-top: var(--space-3);
+  padding: 10px 12px;
+  border-radius: var(--radius-m);
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.05);
+}
+.ho-roompreview__main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.ho-roompreview__game {
+  font-weight: 800;
+  font-size: 1.02rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ho-roompreview__sub {
+  font-size: 0.84rem;
+  color: var(--text-dim);
+}
+
+/* ---------- game picker rows ---------- */
+.ho-gamelist {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.ho-gamepick {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  width: 100%;
+  min-height: 68px;
+  padding: 8px 12px;
+  border-radius: var(--radius-m);
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text);
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+  transition: border-color 0.12s, background 0.12s, transform 0.12s;
+}
+.ho-gamepick:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.09);
+  border-color: var(--line-strong);
+}
+.ho-gamepick:active:not(:disabled) {
+  transform: scale(0.99);
+}
+.ho-gamepick:disabled {
+  opacity: 0.6;
+  cursor: progress;
+}
+.ho-gamepick.is-on {
+  border-color: var(--gold);
+  background: rgba(255, 200, 87, 0.12);
+}
+.ho-gamepick__main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.ho-gamepick__name {
+  font-weight: 800;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ho-gamepick__sub {
+  font-size: 0.82rem;
+  color: var(--text-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ho-gamepick__go {
+  flex: none;
+  padding: 0 14px;
+  min-height: 36px;
+  display: inline-flex;
+  align-items: center;
+  border-radius: var(--radius-pill);
+  background: linear-gradient(180deg, var(--gold), var(--gold-2));
+  color: #0f1220;
+  font-weight: 800;
+  font-size: 0.88rem;
+}
+
+/* ---------- sheet (bottom sheet on phones, centred card on wide screens) ---------- */
+.ho-sheetwrap {
+  align-items: end;
+  padding: 0;
+}
+.ho-sheet {
+  width: 100%;
+  max-height: min(86dvh, 640px);
+  display: flex;
+  flex-direction: column;
+  padding: 10px var(--space-4) calc(var(--space-4) + var(--safe-bottom));
+  border-radius: var(--radius-l) var(--radius-l) 0 0;
+  border: 1px solid var(--line-strong);
+  border-bottom: 0;
+  background: linear-gradient(160deg, var(--surface-2), var(--surface));
+  color: var(--text);
+  box-shadow: 0 -12px 40px rgba(0, 0, 0, 0.5);
+  animation: ho-slide 0.22s cubic-bezier(0.2, 0.9, 0.3, 1);
+  outline: none;
+}
+.ho-sheet__grab {
+  align-self: center;
+  width: 40px;
+  height: 4px;
+  margin-bottom: 8px;
+  border-radius: 4px;
+  background: var(--line-strong);
+}
+.ho-sheet__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-bottom: var(--space-3);
+}
+.ho-sheet__head .ho-modal__title {
+  margin: 0 0 2px;
+}
+.ho-sheet__body {
+  overflow-y: auto;
+  min-height: 0;
+  overscroll-behavior: contain;
+}
+.ho-sheet__foot {
+  margin-top: var(--space-3);
+}
+@media (min-width: 640px) {
+  .ho-sheetwrap {
+    align-items: center;
+    padding: var(--space-4);
+  }
+  .ho-sheet {
+    width: min(100%, 460px);
+    border-radius: var(--radius-l);
+    border-bottom: 1px solid var(--line-strong);
+    padding-bottom: var(--space-4);
+    animation-name: ho-pop;
+  }
+  .ho-sheet__grab {
+    display: none;
+  }
+}
+@keyframes ho-slide {
+  from {
+    transform: translateY(32px);
+    opacity: 0;
+  }
+}
+
+/* ---------- friend link ---------- */
+.ho-friendlink {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-5) var(--space-4);
+  text-align: center;
+}
+.ho-friendlink__avatar {
+  display: grid;
+  place-items: center;
+  width: 112px;
+  height: 112px;
+  margin-bottom: var(--space-2);
+  border-radius: 50%;
+  background: radial-gradient(circle at 30% 25%, rgba(255, 200, 87, 0.32), rgba(255, 255, 255, 0.05) 70%);
+  border: 1px solid var(--line-strong);
+  box-shadow: var(--shadow-2);
+}
+.ho-friendlink__who {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  margin: 0;
+  color: var(--text-dim);
+}
+.ho-friendlink__who strong {
+  color: var(--text);
+  font-size: 1.05rem;
+}
+.ho-friendlink__code {
+  letter-spacing: 0.08em;
+  font-variant-numeric: tabular-nums;
+}
+.ho-friendlink .ho-status__actions {
+  margin-top: var(--space-3);
+}
+
+/* ---------- login hero (hub) ---------- */
+.ho-hero--hub {
+  min-height: 190px;
+  background: linear-gradient(145deg, #1b1a4a, #0e1430 62%, #0b1226);
+}
+.ho-hero__glow {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background:
+    radial-gradient(360px 220px at 12% 0%, rgba(124, 92, 255, 0.5), transparent 70%),
+    radial-gradient(300px 200px at 100% 100%, rgba(255, 200, 87, 0.26), transparent 70%),
+    radial-gradient(260px 180px at 70% -10%, rgba(46, 196, 182, 0.26), transparent 70%);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ho-sheet,
+  .ho-gamepick {
+    animation: none;
+    transition: none;
+  }
+}
+:root[data-motion='reduced'] :is(.ho-sheet, .ho-gamepick) {
+  animation: none;
+  transition: none;
+}
+
+/* ---------- fixes found in visual QA ---------- */
+.ho-roompreview__game {
+  white-space: normal;
+  overflow-wrap: anywhere;
+  line-height: 1.2;
+}
+.ho-roompreview__badge {
+  margin-top: 6px;
+  align-self: flex-start;
+}
+.ho-host__steps {
+  list-style: decimal;
+}
+.ho-sheetwrap {
+  grid-template-columns: minmax(0, 1fr);
+  justify-items: stretch;
+}
+.ho-sheet {
+  min-width: 0;
+}
+.ho-gamepick {
+  min-width: 0;
+}
+@media (min-width: 640px) {
+  .ho-sheetwrap {
+    justify-items: center;
+  }
+}
+.ho-wide {
+  display: none;
+}
+@media (min-width: 560px) {
+  .ho-wide {
+    display: inline;
+  }
+}
+.ho-friends .ho-row__sub {
+  overflow-wrap: anywhere;
+}
+
+.ho-narrow { display: inline; }
+@media (min-width: 560px) {
+  .ho-narrow { display: none; }
 }

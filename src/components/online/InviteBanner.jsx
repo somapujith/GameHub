@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { useInRouterContext, useNavigate } from 'react-router-dom';
 import { Avatar } from '@/components/art/index.js';
+import { paths } from '@/platform/paths.js';
 import '@/styles/online.css';
 
 // Floating notices for realtime user-socket events: game invites (Join / Dismiss) and a small heads-up
@@ -21,34 +22,42 @@ function navigateWithoutRouter(to) {
   }
 }
 
-function Notice({ item, onDismiss, go }) {
-  const { key, kind, from, code } = item;
-  useEffect(() => {
-    const t = setTimeout(() => onDismiss(key), TTL[kind] || 8000);
-    return () => clearTimeout(t);
-  }, [key, kind, onDismiss]);
-
+/** The words and destination of a notice (pure, unit-tested). */
+export function noticeContent({ kind, from, code, gameName }) {
   const name = from?.name || 'A friend';
   let title;
   let body;
   let actionLabel;
   let target;
   if (kind === 'invite') {
-    title = `${name} invited you to play`;
+    // `gameName` comes from the server's invite push ({t:'invite', from, code, gameId, gameName})
+    title = gameName ? `${name} invited you to play ${gameName}` : `${name} invited you to play`;
     body = code ? `Room ${code}` : 'Tap Join to jump in';
     actionLabel = 'Join';
-    target = code ? `/lobby/${code}` : null;
+    // the join page checks the room (full? started?) and then opens the lobby
+    target = code ? paths.join(code) : null;
   } else if (kind === 'friend_request') {
     title = `${name} sent you a friend request`;
     body = 'Open Friends to accept';
     actionLabel = 'View';
-    target = '/friends';
+    target = paths.friends();
   } else {
     title = `${name} accepted your friend request`;
     body = 'You are friends now';
     actionLabel = 'Friends';
-    target = '/friends';
+    target = paths.friends();
   }
+  return { title, body, actionLabel, target };
+}
+
+function Notice({ item, onDismiss, go }) {
+  const { key, kind, from } = item;
+  useEffect(() => {
+    const t = setTimeout(() => onDismiss(key), TTL[kind] || 8000);
+    return () => clearTimeout(t);
+  }, [key, kind, onDismiss]);
+
+  const { title, body, actionLabel, target } = noticeContent(item);
 
   return (
     <div className={`ho-notice ho-notice--${kind}`} role={kind === 'invite' ? 'alert' : 'status'}>

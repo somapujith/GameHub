@@ -6,7 +6,7 @@ const config = new Hono();
 config.get('/', (c) =>
   c.json({
     googleClientId: c.env.GOOGLE_CLIENT_ID || null,
-    appName: c.env.APP_NAME || 'Hyderabad Tycoon',
+    appName: c.env.APP_NAME || 'GameHub',
   }),
 );
 

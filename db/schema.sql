@@ -97,3 +97,70 @@ CREATE INDEX IF NOT EXISTS match_players_match_idx
 CREATE INDEX IF NOT EXISTS match_players_user_idx
   ON match_players (user_id)
   WHERE user_id IS NOT NULL;
+
+-- ---------------------------------------------------------------------------------------------
+-- GameHub marketplace (docs/MARKETPLACE.md section 6). Everything below is additive + idempotent.
+-- ---------------------------------------------------------------------------------------------
+
+-- Which game a match belongs to. Rows written by the old (Tycoon-only) version get the default.
+ALTER TABLE matches ADD COLUMN IF NOT EXISTS game_id text NOT NULL DEFAULT 'hyderabad-tycoon';
+
+CREATE INDEX IF NOT EXISTS matches_game_idx
+  ON matches (game_id, ended_at DESC);
+
+-- Per-game numbers. users.xp / coins / level stay platform-wide. The legacy users.games / wins /
+-- best_worth / rent_earned columns keep being updated for Tycoon so the previous version of the
+-- app keeps working during a rollout. `rating` is a simple Elo-style number (see worker/rating.js).
+CREATE TABLE IF NOT EXISTS user_game_stats (
+  user_id    uuid NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+  game_id    text NOT NULL,
+  games      integer NOT NULL DEFAULT 0,
+  wins       integer NOT NULL DEFAULT 0,
+  best_score integer NOT NULL DEFAULT 0,
+  rating     integer NOT NULL DEFAULT 1000,
+  extra      jsonb NOT NULL DEFAULT '{}',
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (user_id, game_id)
+);
+
+CREATE INDEX IF NOT EXISTS user_game_stats_rank_idx
+  ON user_game_stats (game_id, wins DESC, rating DESC);
+
+-- Overall leaderboard (ranked by xp).
+CREATE INDEX IF NOT EXISTS users_xp_idx
+  ON users (xp DESC)
+  WHERE is_guest = false;
+
+-- One-time backfill of Tycoon stats from the legacy users columns. Re-running it never overwrites
+-- a row that already exists (ON CONFLICT DO NOTHING), so numbers kept up to date by the app win.
+INSERT INTO user_game_stats (user_id, game_id, games, wins, best_score)
+SELECT id, 'hyderabad-tycoon', games, wins, best_worth
+  FROM users
+ WHERE games > 0
+ON CONFLICT (user_id, game_id) DO NOTHING;
+
+-- Listing of live rooms (powers "Open tables" and "Continue playing" only). The room Durable Object
+-- is the source of truth: it upserts its row on create / join / leave / settings / visibility /
+-- start / finish and deletes it on expiry. Queries ignore rows older than 24 h.
+-- member_ids = ids of the human members (so /api/rooms/mine does not need the Durable Object).
+CREATE TABLE IF NOT EXISTS rooms (
+  code         text PRIMARY KEY,
+  game_id      text NOT NULL,
+  host_id      uuid,
+  host_name    text,
+  visibility   text NOT NULL DEFAULT 'private',
+  status       text NOT NULL DEFAULT 'lobby',
+  player_count integer NOT NULL DEFAULT 1,
+  max_players  integer NOT NULL DEFAULT 4,
+  settings     jsonb NOT NULL DEFAULT '{}',
+  created_at   timestamptz NOT NULL DEFAULT now(),
+  updated_at   timestamptz NOT NULL DEFAULT now()
+);
+
+ALTER TABLE rooms ADD COLUMN IF NOT EXISTS member_ids uuid[] NOT NULL DEFAULT '{}';
+
+CREATE INDEX IF NOT EXISTS rooms_listing_idx
+  ON rooms (visibility, status, game_id, updated_at DESC);
+
+CREATE INDEX IF NOT EXISTS rooms_members_idx
+  ON rooms USING gin (member_ids);

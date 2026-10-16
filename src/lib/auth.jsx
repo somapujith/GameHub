@@ -2,11 +2,14 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { api, errorMessage } from './api.js';
 import { openUserSocket } from './socket.js';
 import { InviteBanner } from '@/components/online/InviteBanner.jsx';
+import { paths } from '@/platform/paths.js';
 
 // Auth + the signed-in user's realtime socket.
 //
 //   const { user, loading, configured, loginWithGoogle, loginGuest, logout, refresh } = useAuth();
 //
+// `user` is the `user` object of GET /api/me, passed through untouched (id, name, avatar, isGuest, friendCode, level,
+// xp, coins, stats and the per-game `gameStats: { [gameId]: { games, wins, bestScore, rating } }`).
 // The session itself is the httpOnly `hyd_session` cookie: nothing sensitive is kept in JS or localStorage.
 // If the Worker is unreachable (plain `vite` dev), everything degrades to "signed out" without errors.
 
@@ -248,9 +251,9 @@ export function AuthProvider({ children }) {
   const pushNotice = useCallback((n) => {
     if (typeof window === 'undefined') return;
     const path = window.location.pathname;
-    if (path.startsWith('/game/')) return; // never cover a running game
-    if (n.kind !== 'invite' && path.startsWith('/friends')) return; // that page already updates live
-    if (n.kind === 'invite' && n.code && path === `/lobby/${n.code}`) return;
+    if (path.startsWith('/play/') || path.startsWith('/game/')) return; // never cover a running game (new and legacy URLs)
+    if (n.kind !== 'invite' && path.startsWith(paths.friends())) return; // that page already updates live
+    if (n.kind === 'invite' && n.code && (path === paths.lobby(n.code) || path === paths.join(n.code))) return;
     const key = `${n.kind}:${n.from?.id ?? ''}:${n.code ?? ''}`;
     setNotices((cur) => [...cur.filter((x) => x.key !== key), { ...n, key }].slice(-NOTICE_MAX));
   }, []);
@@ -273,7 +276,10 @@ export function AuthProvider({ children }) {
           }
         }
       }
-      if (msg.t === 'invite' && typeof msg.code === 'string') pushNotice({ kind: 'invite', from: msg.from, code: msg.code });
+      if (msg.t === 'invite' && typeof msg.code === 'string') {
+        // {t:'invite', from, code, gameId, gameName}: the banner says which game ("Ravi invited you to play X")
+        pushNotice({ kind: 'invite', from: msg.from, code: msg.code, gameId: msg.gameId, gameName: typeof msg.gameName === 'string' ? msg.gameName : undefined });
+      }
       else if (msg.t === 'friend_request') pushNotice({ kind: 'friend_request', from: msg.from });
       else if (msg.t === 'friend_accepted') pushNotice({ kind: 'friend_accepted', from: msg.by });
     };

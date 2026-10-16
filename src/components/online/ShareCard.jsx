@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
 import { canShare, shareOrCopy, useCopied } from './clipboard.js';
-import { inviteText, lobbyLink, spacedCode, whatsappUrl } from './codes.js';
+import { inviteMessage, joinLink, spacedCode, whatsappUrl } from './codes.js';
 import '@/styles/online.css';
 
 function WhatsAppIcon() {
@@ -15,16 +15,16 @@ function WhatsAppIcon() {
   );
 }
 
-/** Room code in big letters + copy, share link, WhatsApp, native share and a QR code. */
-export default function ShareCard({ code, onNotify }) {
+/** Room code in big letters + copy, share link (`origin + paths.join(code)`), WhatsApp, native share and a QR code. */
+export default function ShareCard({ code, gameName, onNotify }) {
   const [codeCopied, copyCode] = useCopied();
   const [linkCopied, copyLink] = useCopied();
   const [qrOpen, setQrOpen] = useState(false);
-  const link = lobbyLink(code);
+  const link = joinLink(code);
   const notify = (text, tone) => onNotify && onNotify(text, tone);
 
   const share = async () => {
-    const res = await shareOrCopy({ title: 'Hyderabad Tycoon', text: inviteText(code).split('\n').slice(0, 2).join('\n'), url: link });
+    const res = await shareOrCopy(inviteMessage(code, gameName));
     if (res === 'copied') notify('Invite copied to clipboard', 'good');
     else if (res === 'failed') notify('Could not share. Copy the link instead.', 'bad');
   };
@@ -70,7 +70,7 @@ export default function ShareCard({ code, onNotify }) {
       </div>
 
       <div className="ho-share__actions">
-        <a className="ho-btn ho-btn--wa" href={whatsappUrl(code)} target="_blank" rel="noopener noreferrer">
+        <a className="ho-btn ho-btn--wa" href={whatsappUrl(code, gameName)} target="_blank" rel="noopener noreferrer">
           <WhatsAppIcon /> WhatsApp
         </a>
         {canShare() && (

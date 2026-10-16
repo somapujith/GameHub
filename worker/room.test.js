@@ -25,7 +25,8 @@ vi.mock('./match.js', async (importOriginal) => {
   };
 });
 
-const { GameRoom, pendingActors, estimateAnimMs, autoMove, TURN_MS, GRACE_MS, TRADE_MS } = await import('./GameRoom.js');
+const { GameRoom, TURN_MS, GRACE_MS } = await import('./GameRoom.js');
+const { pendingActors, estimateAnimMs, autoMove, TRADE_MS } = await import('./games/hyderabad-tycoon.js');
 const { persistMatch } = await import('./match.js');
 const engine = await import('../shared/index.js');
 
@@ -630,13 +631,13 @@ describe('rules v2: trades and debts', () => {
       return { trade: offer(s, bot, U(1)) };
     });
     const r = h.room.room;
-    r.tradeId = 'trade-1';
-    r.tradeAt = Date.now();
+    const tradeAt = Date.now();
+    r.deadlines = { 'trade:trade-1': tradeAt }; // the clock the room started when the offer appeared
     const plan = h.room.plan();
     expect(plan.action).toEqual({ type: 'TRADE_REJECT', playerId: U(1) });
-    expect(plan.at).toBe(r.tradeAt + TRADE_MS);
+    expect(plan.at).toBe(tradeAt + TRADE_MS);
     expect(plan.timeout).toBe(false);
-    vi.setSystemTime(r.tradeAt + TRADE_MS - 1000);
+    vi.setSystemTime(tradeAt + TRADE_MS - 1000);
     expect(h.room.plan().at).toBeGreaterThan(Date.now());
   });
 
@@ -654,7 +655,7 @@ describe('rules v2: trades and debts', () => {
       const bot = s.players.find((p) => p.isBot).id;
       return { trade: offer(s, bot, U(1)) };
     });
-    h2.room.room.tradeAt = Date.now();
+    h2.room.room.deadlines = { 'trade:trade-1': Date.now() };
     h2.room.room.afk[U(1)] = true;
     plan = h2.room.plan();
     expect(plan.action.type).toBe('TRADE_REJECT');
@@ -677,6 +678,7 @@ describe('rules v2: trades and debts', () => {
     });
     // the recipient is a bot -> it answers first; make the bot a connected human instead
     h.room.room.state.players.find((p) => p.isBot).isBot = false;
+    h.room.room.players.find((p) => p.isBot).isBot = false;
     h.room.room.afk[U(1)] = true;
     const plan = h.room.plan();
     expect(plan.action).toEqual({ type: 'TRADE_CANCEL', playerId: U(1) });
@@ -708,12 +710,14 @@ describe('rules v2: trades and debts', () => {
     r.state.owners[1] = to; // the recipient owns Miyapur
     await h.say(sockFrom, { t: 'action', action: { type: 'TRADE_OFFER', to, give: { cash: 100, tiles: [] }, get: { cash: 0, tiles: [1] } } });
     expect(h.state.trade).toMatchObject({ from, to });
-    expect(r.tradeId).toBe(h.state.trade.id);
+    const tradeKey = `trade:${h.state.trade.id}`;
+    const tradeAt = r.deadlines[tradeKey];
+    expect(tradeAt).toBe(r.lastApplyAt + r.animMs);
     const plan = h.room.plan();
     expect(plan.action).toEqual({ type: 'TRADE_REJECT', playerId: to });
-    expect(plan.at).toBe(r.tradeAt + TRADE_MS);
+    expect(plan.at).toBe(tradeAt + TRADE_MS);
     // not yet: 29 s in nothing happens
-    vi.setSystemTime(r.tradeAt + TRADE_MS - 1000);
+    vi.setSystemTime(tradeAt + TRADE_MS - 1000);
     await h.room.alarm();
     expect(h.state.trade).not.toBeNull();
     // 30 s: auto-reject, broadcast with the engine's own event, no idle flag for the recipient
@@ -723,7 +727,7 @@ describe('rules v2: trades and debts', () => {
     expect(r.seq).toBe(seq + 1);
     const ev = a.last('state').events.find((e) => e.type === 'trade_rejected');
     expect(ev).toMatchObject({ from, to, reason: 'rejected' });
-    expect(r.tradeId).toBeNull();
+    expect(r.deadlines).toEqual({}); // the timer is gone with the offer
     expect(r.afk[to]).toBeUndefined();
     expect(h.state.owners[1]).toBe(to);
 

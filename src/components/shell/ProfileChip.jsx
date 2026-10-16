@@ -1,22 +1,32 @@
-import { Link } from 'react-router-dom';
-import { AvatarRing, Coins } from './ui.jsx';
+import { Link, useLocation } from 'react-router-dom';
+import { AvatarRing } from './ui.jsx';
 import { useProfile } from './stores.js';
 import { useAccount } from './hooks.js';
+import { paths } from '@/platform/paths.js';
 
-/** Top-bar chip: avatar, level, coins, and a signed-in indicator. Links to the profile screen. */
+/**
+ * Top-bar chip: avatar with a signed-in indicator (green = account, amber = guest, grey = signed out),
+ * name and level. Signed-in players go to their profile; visitors go to the login screen and come back.
+ */
 export default function ProfileChip() {
   const [profile] = useProfile();
   const { signedIn, guest, user } = useAccount();
-  const label = signedIn ? (guest ? 'Guest account' : 'Signed in') : 'Not signed in';
-  const name = (signedIn && user?.name) || profile.name;
+  const { pathname, search } = useLocation();
+
+  const name = (signedIn && user?.name) || profile.name || 'Guest';
+  const avatar = signedIn && Number.isInteger(user?.avatar) ? user.avatar : profile.avatar;
+  const level = signedIn && Number.isFinite(Number(user?.level)) ? Number(user.level) : profile.level;
+  const status = signedIn ? (guest ? 'Guest account' : 'Signed in') : 'Not signed in';
+  const sub = !signedIn ? 'Sign in' : guest ? 'Guest' : `Lv ${level}`;
+  const to = signedIn ? paths.profile() : paths.login(`${pathname}${search}`);
+
   return (
-    <Link to="/settings" className="hh-chip" aria-label={`Profile: ${name}, level ${profile.level}, ${profile.coins} coins. ${label}`}>
-      <AvatarRing preset={profile.avatar} size={34} dot={signedIn ? (guest ? 'guest' : 'on') : 'off'} />
-      <span className="hh-chip__meta">
-        <span className="hh-chip__name">{name}</span>
-        <span className="hh-chip__lvl">Lv {profile.level}</span>
+    <Link to={to} className="hub-userchip" aria-label={`Profile: ${name}. ${status}${signedIn ? `, level ${level}` : ''}`}>
+      <AvatarRing preset={avatar} size={32} dot={signedIn ? (guest ? 'guest' : 'on') : 'off'} />
+      <span className="hub-userchip__meta">
+        <b>{name}</b>
+        <small>{sub}</small>
       </span>
-      <Coins value={profile.coins} className="hh-chip__coins" size={16} />
     </Link>
   );
 }

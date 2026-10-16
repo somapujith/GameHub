@@ -9,7 +9,7 @@ import {
   isSecureRequest,
 } from '../auth.js';
 import { limit } from '../ratelimit.js';
-import { rowToUser } from '../users.js';
+import { rowToUser, loadGameStats } from '../users.js';
 import { readJson } from '../http.js';
 
 const auth = new Hono();
@@ -17,7 +17,7 @@ const auth = new Hono();
 async function startSession(c, row) {
   const token = await signSession(c.env, { id: row.id, isGuest: row.is_guest });
   c.header('Set-Cookie', sessionCookie(token, isSecureRequest(c.req.raw)));
-  return c.json({ user: rowToUser(row) });
+  return c.json({ user: rowToUser(row, await loadGameStats(c.env, row.id)) });
 }
 
 // POST /api/auth/google { credential }

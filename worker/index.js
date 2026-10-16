@@ -1,4 +1,4 @@
-// Hyderabad Tycoon - Cloudflare Worker entry.
+// GameHub - Cloudflare Worker entry.
 // Same-origin API (no CORS), cookie sessions, WebSocket upgrades forwarded to Durable
 // Objects, everything else served from the static bundle (ASSETS).
 import { Hono } from 'hono';
@@ -14,6 +14,7 @@ import friendRoutes from './routes/friends.js';
 import roomRoutes from './routes/rooms.js';
 import inviteRoutes from './routes/invites.js';
 import leaderboardRoutes from './routes/leaderboard.js';
+import gameRoutes from './routes/games.js';
 import healthRoutes from './routes/health.js';
 
 export { GameRoom } from './GameRoom.js';
@@ -27,7 +28,11 @@ const api = new Hono();
 // Security headers on every API response (static assets get theirs from public/_headers).
 api.use('*', async (c, next) => {
   await next();
-  for (const [k, v] of Object.entries(apiSecurityHeaders(isSecureRequest(c.req.raw)))) c.header(k, v);
+  for (const [k, v] of Object.entries(apiSecurityHeaders(isSecureRequest(c.req.raw)))) {
+    // A route may opt into short caching of public data (open tables); everything else is no-store.
+    if (k === 'Cache-Control' && c.res.headers.has('Cache-Control')) continue;
+    c.header(k, v);
+  }
 });
 
 // CSRF defence in depth (cookies are SameSite=Lax): refuse cross-origin state changes.
@@ -48,6 +53,7 @@ api.route('/config', configRoutes);
 api.route('/auth', authRoutes);
 api.route('/me', meRoutes);
 api.route('/friends', friendRoutes);
+api.route('/games', gameRoutes);
 api.route('/rooms', roomRoutes);
 api.route('/invites', inviteRoutes);
 api.route('/leaderboard', leaderboardRoutes);

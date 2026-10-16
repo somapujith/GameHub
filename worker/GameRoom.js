@@ -1,30 +1,30 @@
-// GameRoom: one Durable Object per room code (WebSocket Hibernation API).
+// GameRoom: one Durable Object per room code (WebSocket Hibernation API). Game-agnostic: every
+// rule of the game being played lives in the adapter chosen by the room's `gameId`
+// (worker/games/<id>.js, see worker/games/index.js); this class only knows about seats, timers,
+// sockets and persistence.
 //
-// Lobby: players join over WS, ready up, the host edits settings, adds/removes bots, kicks,
-// starts (>= 2 players). Game: the server owns the engine; clients only send intents
-// (`{t:'action'}`), the server forces `playerId`, applies them and broadcasts the result.
-// Bots, idle humans (45 s) and disconnected humans (15 s grace) are driven by DO alarms.
-// The whole room record lives in DO storage, so eviction/hibernation is safe.
+// Lobby: players join over WS, ready up, the host edits settings and visibility, adds/removes
+// bots, kicks, starts (>= adapter.minPlayers). Game: the server owns the game state; clients only
+// send intents (`{t:'action'}`), the server forces `playerId`, applies them through the adapter
+// and broadcasts the result. Bots, idle humans (45 s) and disconnected humans (15 s grace) are
+// driven by DO alarms. The whole room record lives in DO storage, so eviction/hibernation is safe.
+// A listing row in the `rooms` table is kept in step on a best-effort basis (never breaks a room).
 import { DurableObject } from 'cloudflare:workers';
-import * as engine from '../shared/index.js';
-import { MAX_LEVEL } from '../shared/board.js';
-import { maskStateFor, hasSealedBids } from './mask.js';
+import { getAdapter, DEFAULT_GAME_ID } from './games/index.js';
 import { buildMatchRecord, persistMatch } from './match.js';
-import { pickRival } from './rivals.js';
-import { sanitizeSettings, normalizeSettings } from './settings.js';
 import {
-  sanitizeName,
-  parseAvatar,
-  sanitizeAction,
-  sanitizeChat,
-  sanitizeEmote,
-  isUuid,
-} from './validate.js';
+  parseRoomInit,
+  parseSettingsPatch,
+  parseVisibility,
+  defaultSanitizeAction,
+  DEFAULT_VISIBILITY,
+} from './roomrules.js';
+import { roomRow, rowSignature, upsertRoomRow, deleteRoomRow, hasDb, LISTING_HEARTBEAT_MS } from './roomsdb.js';
+import { sanitizeName, parseAvatar, sanitizeChat, sanitizeEmote, isUuid } from './validate.js';
 
 export const TURN_MS = 45_000; // human idle limit per decision
 export const GRACE_MS = 15_000; // disconnected human is auto-played after this
-const BOT_DELAY_MS = 900;
-const BID_DELAY_MS = 400;
+const BOT_DELAY_MS = 900; // pause before an automated move (adapters may shorten it via moveDelayMs)
 const LOBBY_GRACE_MS = 60_000; // a disconnected lobby member is dropped after this
 const ROOM_TTL_MS = 24 * 60 * 60 * 1000;
 const ABANDON_MS = 5 * 60 * 1000; // nobody connected for this long -> stop playing the game
@@ -34,8 +34,6 @@ const MAX_MESSAGE_CHARS = 4096;
 const MAX_SOCKETS_PER_USER = 3;
 const PERSIST_BACKOFF_MS = [2_000, 10_000, 30_000, 120_000, 600_000];
 const PERSIST_MAX_ATTEMPTS = 8;
-const MAX_ANIM_MS = 6000;
-export const TRADE_MS = 30_000; // an unanswered trade offer is auto-rejected after this
 
 const json = (data, status = 200) =>
   new Response(JSON.stringify(data), { status, headers: { 'content-type': 'application/json' } });
@@ -58,89 +56,18 @@ function shuffled(list) {
 /** WebSocket close codes must be 1000 or 3000-4999 for close(); coerce anything else. */
 const safeCode = (code) => (code === 1000 || (code >= 3000 && code <= 4999) ? code : 1000);
 
-/** Rough client-side animation time of an action's events (the next move waits for it). */
-export function estimateAnimMs(events) {
-  let ms = 0;
-  for (const ev of events || []) {
-    switch (ev.type) {
-      case 'dice':
-        ms += 900;
-        break;
-      case 'move':
-        ms += 170 * (ev.path ? ev.path.length : 0);
-        break;
-      case 'card':
-        ms += 1500;
-        break;
-      case 'auction_end':
-        ms += 1500;
-        break;
-      case 'win':
-        ms += 2500;
-        break;
-      default:
-        break;
-    }
-  }
-  return Math.min(ms, MAX_ANIM_MS);
-}
-
-/**
- * Ids of the (non-bankrupt) players the game is currently waiting for.
- * - pending trade: the player who must answer it (`trade.to`);
- * - debt phase: the debtor;
- * - auction: everyone who has not bid yet;
- * - otherwise the turn player.
- */
-export function pendingActors(state) {
-  if (!state || state.phase === 'over') return [];
-  if (state.trade) {
-    const to = state.players.find((p) => p.id === state.trade.to);
-    return to && !to.bankrupt ? [to.id] : [];
-  }
-  if (state.phase === 'debt' && state.debt) {
-    const debtor = state.players.find((p) => p.id === state.debt.player);
-    return debtor && !debtor.bankrupt ? [debtor.id] : [];
-  }
-  if (state.phase === 'auction' && state.pending && state.pending.type === 'auction') {
-    return state.players.filter((p) => !p.bankrupt && !(p.id in state.pending.bids)).map((p) => p.id);
-  }
-  const tp = state.players[state.turn];
-  return tp && !tp.bankrupt ? [tp.id] : [];
-}
-
-/** The move an automated player (bot, idle or disconnected human) should make right now. */
-export function autoMove(state, playerId, rnd = Math.random) {
-  let action = null;
-  if (typeof engine.chooseBotAction === 'function') {
-    action = engine.chooseBotAction(state, playerId, rnd);
-  } else {
-    // Fallback: treat the player as a bot for one nextBotMove call.
-    const clone = {
-      ...state,
-      players: state.players.map((p) =>
-        p.id === playerId ? { ...p, isBot: true, bot: p.bot || { reserve: 500, greed: 1 } } : p,
-      ),
-    };
-    const a = engine.nextBotMove(clone, rnd);
-    action = a && a.playerId === playerId ? a : null;
-  }
-  // Safety nets for phases the brain declines to act in: a debtor tries to pay (the engine
-  // rejects it if they cannot, and repeated rejections end in RESIGN).
-  if (!action && state.phase === 'debt' && state.debt && state.debt.player === playerId) {
-    action = { type: 'PAY_DEBT', playerId };
-  }
-  return action;
-}
-
 export class GameRoom extends DurableObject {
   constructor(ctx, env) {
     super(ctx, env);
     this.room = null;
+    this.adapter = null;
     this.chatAt = new Map(); // userId -> last chat time
     this.rate = new Map(); // userId -> { start, count }
     this.autoFailures = new Map(); // playerId -> consecutive failed auto moves
     this.lastActivitySaved = 0;
+    this.listingChain = Promise.resolve(); // listing writes run strictly in order
+    this.listedSig = null; // signature of the last row written to `rooms`
+    this.listedAt = 0;
     // Answer heartbeats without waking a hibernating object.
     try {
       ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair('{"t":"ping"}', '{"t":"pong"}'));
@@ -149,13 +76,33 @@ export class GameRoom extends DurableObject {
     }
     ctx.blockConcurrencyWhile(async () => {
       this.room = (await ctx.storage.get('room')) || null;
+      this.bindAdapter();
     });
   }
 
   // ------------------------------------------------------------------ plumbing
 
+  /**
+   * Pick the adapter of the loaded room and fill in fields that rooms created by older versions
+   * lack (they were all Hyderabad Tycoon rooms, private, without per-match meta or deadlines).
+   */
+  bindAdapter() {
+    const r = this.room;
+    this.adapter = null;
+    if (!r) return;
+    r.gameId ||= DEFAULT_GAME_ID;
+    r.visibility ||= DEFAULT_VISIBILITY;
+    r.meta ||= {};
+    r.deadlines ||= {};
+    this.adapter = getAdapter(r.gameId);
+    if (this.adapter && typeof this.adapter.upgradeRecord === 'function') this.adapter.upgradeRecord(r);
+  }
+
   async save() {
-    if (this.room) await this.ctx.storage.put('room', this.room);
+    if (this.room) {
+      await this.ctx.storage.put('room', this.room);
+      this.syncListing();
+    }
   }
 
   touch() {
@@ -193,13 +140,17 @@ export class GameRoom extends DurableObject {
     this.send(ws, { t: 'error', message });
   }
 
-  fullSettings() {
-    // Strictly validated values (settings.js) completed with the engine's own defaults, so what the
-    // lobby shows is exactly what createGame will use (state.cfg).
-    const chosen = normalizeSettings(this.room.settings);
-    return typeof engine.normalizeSettings === 'function'
-      ? engine.normalizeSettings(chosen)
-      : { ...engine.DEFAULT_SETTINGS, ...chosen };
+  /** What the state looks like to one viewer (the adapter hides secrets; same object = nothing hidden). */
+  viewOf(userId) {
+    const a = this.adapter;
+    return a && typeof a.redact === 'function' ? a.redact(this.room.state, userId) : this.room.state;
+  }
+
+  /** Settings as the lobby shows them (adapters may complete them with the engine's own defaults). */
+  lobbySettings() {
+    const a = this.adapter;
+    const s = this.room.settings;
+    return a && typeof a.lobbySettings === 'function' ? a.lobbySettings(s) : s;
   }
 
   roomView() {
@@ -210,7 +161,9 @@ export class GameRoom extends DurableObject {
       status: r.status,
       hostId: r.hostId,
       maxPlayers: r.maxPlayers,
-      settings: this.fullSettings(),
+      gameId: r.gameId,
+      visibility: r.visibility,
+      settings: this.lobbySettings(),
       players: r.players.map((p) => ({
         id: p.id,
         name: p.name,
@@ -223,18 +176,21 @@ export class GameRoom extends DurableObject {
   }
 
   /**
-   * Broadcast the authoritative state. During a sealed auction each recipient gets a copy in
-   * which other players' bid amounts are 0 (see mask.js); otherwise one payload fits everyone.
+   * Broadcast the authoritative state. Each recipient gets the adapter's `redact` view of it;
+   * when nothing is hidden (the view is the state itself) one serialised payload fits everyone.
    */
   broadcastState(events) {
     const r = this.room;
-    if (!hasSealedBids(r.state)) {
-      this.broadcast({ t: 'state', state: r.state, events, seq: r.seq });
-      return;
-    }
+    let shared = null;
     for (const ws of this.liveSockets()) {
       const uid = ws.deserializeAttachment()?.userId;
-      this.send(ws, { t: 'state', state: maskStateFor(r.state, uid), events, seq: r.seq });
+      const view = this.viewOf(uid);
+      if (view === r.state) {
+        shared ||= JSON.stringify({ t: 'state', state: r.state, events, seq: r.seq });
+        this.send(ws, shared);
+      } else {
+        this.send(ws, { t: 'state', state: view, events, seq: r.seq });
+      }
     }
   }
 
@@ -267,6 +223,43 @@ export class GameRoom extends DurableObject {
     }
   }
 
+  // ------------------------------------------------------------------ listing (`rooms` table)
+
+  /** Run one listing write after the previous ones; failures are logged, never thrown. */
+  queueListing(op) {
+    this.listingChain = this.listingChain.then(op).catch((err) => {
+      this.listedSig = null; // try again on the next change
+      console.error('room listing failed:', err && err.code ? `${err.code} ${err.message}` : err && err.message);
+    });
+    try {
+      this.ctx.waitUntil(this.listingChain);
+    } catch {
+      /* no execution context (tests): the chain still runs */
+    }
+  }
+
+  /**
+   * Keep this room's row in `rooms` in step with the record (called after every save). Unchanged
+   * rows are only rewritten every LISTING_HEARTBEAT_MS; a lobby without humans is removed.
+   */
+  syncListing(force = false) {
+    const r = this.room;
+    if (!r || !hasDb(this.env)) return;
+    const now = Date.now();
+    const empty = r.status === 'lobby' && !r.players.some((p) => !p.isBot);
+    const row = roomRow(r);
+    const sig = empty ? 'empty' : rowSignature(row);
+    if (!force && sig === this.listedSig && now - this.listedAt < LISTING_HEARTBEAT_MS) return;
+    this.listedSig = sig;
+    this.listedAt = now;
+    this.queueListing(() => (empty ? deleteRoomRow(this.env, row.code) : upsertRoomRow(this.env, row)));
+  }
+
+  dropListing(code) {
+    this.listedSig = 'gone';
+    if (hasDb(this.env)) this.queueListing(() => deleteRoomRow(this.env, code));
+  }
+
   // ------------------------------------------------------------------ HTTP / WS entry
 
   async fetch(request) {
@@ -292,16 +285,19 @@ export class GameRoom extends DurableObject {
     if (!host || !isUuid(host.id) || typeof code !== 'string' || !/^[A-Z0-9]{4,10}$/.test(code)) {
       return json({ error: 'Bad request.' }, 400);
     }
-    const { settings, maxPlayers, errors } = sanitizeSettings({ ...(body.settings || {}), maxPlayers: body.maxPlayers });
-    if (errors.length) return json({ error: errors[0] }, 400);
+    // Defence in depth: the route validated this already, the room validates it again.
+    const init = parseRoomInit(body);
+    if (!init.ok) return json({ error: init.error }, 400);
     const now = Date.now();
     this.room = {
-      v: 1,
+      v: 2,
       code,
+      gameId: init.gameId,
+      visibility: init.visibility,
       status: 'lobby',
       hostId: host.id,
-      maxPlayers: maxPlayers || 4,
-      settings: normalizeSettings(settings),
+      maxPlayers: init.maxPlayers,
+      settings: init.settings,
       players: [
         {
           id: host.id,
@@ -325,17 +321,17 @@ export class GameRoom extends DurableObject {
       createdAt: now,
       lastApplyAt: now,
       animMs: 0,
-      tradeId: null,
-      tradeAt: 0,
-      hotels: {},
+      meta: {}, // opaque per-match data the adapter folds events into (see adapter.track)
+      deadlines: {}, // adapter timer key -> when it started counting
       afk: {},
       disc: { [host.id]: now }, // the host must connect within LOBBY_GRACE_MS
       banned: {},
       noHumanSince: null,
     };
+    this.adapter = init.adapter;
     await this.save();
     await this.scheduleAlarm();
-    return json({ code }, 201);
+    return json({ code, gameId: init.gameId }, 201);
   }
 
   handleInfo(url) {
@@ -349,6 +345,9 @@ export class GameRoom extends DurableObject {
       maxPlayers: r.maxPlayers,
       hostName: this.hostName(),
       isMember: !!member && r.players.some((p) => p.id === member),
+      gameId: r.gameId,
+      visibility: r.visibility,
+      settings: this.lobbySettings(),
     });
   }
 
@@ -381,6 +380,7 @@ export class GameRoom extends DurableObject {
 
     const r = this.room;
     if (!r) return this.rejectSocket(4004, 'That room does not exist.');
+    if (!this.adapter) return this.rejectSocket(4004, 'This game is no longer available.');
 
     const now = Date.now();
     const banUntil = r.banned[userId];
@@ -425,7 +425,7 @@ export class GameRoom extends DurableObject {
 
     await this.save();
     this.broadcastRoom();
-    if (r.state) this.send(server, { t: 'state', state: maskStateFor(r.state, userId), events: [], seq: r.seq });
+    if (r.state) this.send(server, { t: 'state', state: this.viewOf(userId), events: [], seq: r.seq });
     await this.scheduleAlarm();
     return new Response(null, { status: 101, webSocket: client });
   }
@@ -457,6 +457,7 @@ export class GameRoom extends DurableObject {
     if (!msg || typeof msg !== 'object' || typeof msg.t !== 'string') return this.sendError(ws, 'Invalid message.');
     if (msg.t === 'ping') return this.send(ws, { t: 'pong' });
     if (!this.allowMessage(att.userId)) return this.sendError(ws, 'You are sending messages too fast.');
+    if (!this.adapter) return this.sendError(ws, 'This game is no longer available.');
 
     const r = this.room;
     const me = r.players.find((p) => p.id === att.userId);
@@ -468,6 +469,8 @@ export class GameRoom extends DurableObject {
         return this.onReady(ws, me, msg);
       case 'settings':
         return this.onSettings(ws, isHost, msg);
+      case 'visibility':
+        return this.onVisibility(ws, isHost, msg);
       case 'addBot':
         return this.onAddBot(ws, isHost);
       case 'removeBot':
@@ -522,16 +525,29 @@ export class GameRoom extends DurableObject {
     const r = this.room;
     if (!isHost) return this.sendError(ws, 'Only the host can change settings.');
     if (r.status !== 'lobby') return this.sendError(ws, 'Settings are locked once the game starts.');
-    const { settings, maxPlayers, errors } = sanitizeSettings(msg.settings);
-    if (errors.length) return this.sendError(ws, errors[0]);
-    if (maxPlayers !== undefined && maxPlayers < r.players.length) {
+    const parsed = parseSettingsPatch(this.adapter, r.settings, msg.settings);
+    if (!parsed.ok) return this.sendError(ws, parsed.error);
+    if (parsed.maxPlayers !== undefined && parsed.maxPlayers < r.players.length) {
       return this.sendError(ws, 'There are already more players than that.');
     }
-    r.settings = normalizeSettings({ ...r.settings, ...settings });
-    if (maxPlayers !== undefined) r.maxPlayers = maxPlayers;
+    r.settings = parsed.settings;
+    if (parsed.maxPlayers !== undefined) r.maxPlayers = parsed.maxPlayers;
     this.touch();
     await this.save();
     this.broadcastRoom();
+  }
+
+  async onVisibility(ws, isHost, msg) {
+    const r = this.room;
+    if (!isHost) return this.sendError(ws, 'Only the host can change who can see this room.');
+    if (r.status !== 'lobby') return this.sendError(ws, 'Visibility is locked once the game starts.');
+    const visibility = parseVisibility(msg.visibility);
+    if (!visibility) return this.sendError(ws, 'Visibility must be private or public.');
+    r.visibility = visibility;
+    this.touch();
+    await this.save();
+    this.broadcastRoom();
+    await this.scheduleAlarm();
   }
 
   async onAddBot(ws, isHost) {
@@ -539,14 +555,14 @@ export class GameRoom extends DurableObject {
     if (!isHost) return this.sendError(ws, 'Only the host can add bots.');
     if (r.status !== 'lobby') return this.sendError(ws, 'Bots can only be added in the lobby.');
     if (r.players.length >= r.maxPlayers) return this.sendError(ws, 'The room is full.');
-    const rival = pickRival(r.players.map((p) => p.name));
+    const [rival] = this.adapter.rivals(1, r.players.map((p) => p.name));
     r.players.push({
       id: `bot_${randomId(6)}`,
       name: rival.name,
       avatar: rival.avatar,
       ready: true,
       isBot: true,
-      bot: { ...rival.bot },
+      ...(rival.bot ? { bot: { ...rival.bot } } : {}),
     });
     this.touch();
     await this.save();
@@ -607,9 +623,9 @@ export class GameRoom extends DurableObject {
       await this.scheduleAlarm();
       return;
     }
-    if (r.status === 'playing' && r.state && r.state.phase !== 'over') {
-      const p = r.state.players.find((x) => x.id === me.id);
-      if (p && !p.bankrupt) await this.applyAndBroadcast({ type: 'RESIGN', playerId: me.id });
+    if (r.status === 'playing' && r.state && !this.adapter.isOver(r.state)) {
+      const resign = typeof this.adapter.resignAction === 'function' ? this.adapter.resignAction(r.state, me.id) : null;
+      if (resign) await this.applyAndBroadcast(resign);
     }
     me.left = true;
     this.touch();
@@ -627,16 +643,18 @@ export class GameRoom extends DurableObject {
 
   async onStart(ws, isHost) {
     const r = this.room;
+    const a = this.adapter;
     if (!isHost) return this.sendError(ws, 'Only the host can start the game.');
     if (r.status !== 'lobby') return this.sendError(ws, 'The game has already started.');
-    if (r.players.length < 2) return this.sendError(ws, 'You need at least 2 players to start.');
+    if (r.players.length < a.minPlayers) {
+      return this.sendError(ws, `You need at least ${a.minPlayers} players to start.`);
+    }
     if (r.players.length > r.maxPlayers) return this.sendError(ws, 'Too many players for this room.');
 
     const order = shuffled(r.players);
-    const settings = normalizeSettings(r.settings); // goal, startCash, maxRounds (null = unlimited)
     let state;
     try {
-      state = engine.createGame({
+      state = a.createGame({
         players: order.map((p) => ({
           id: p.id,
           name: p.name,
@@ -644,7 +662,7 @@ export class GameRoom extends DurableObject {
           isBot: !!p.isBot,
           ...(p.bot ? { bot: p.bot } : {}),
         })),
-        settings,
+        settings: { ...r.settings },
         seed: crypto.getRandomValues(new Uint32Array(1))[0],
       });
     } catch (err) {
@@ -663,10 +681,10 @@ export class GameRoom extends DurableObject {
     r.persistAt = null;
     r.abandoned = false;
     r.lastApplyAt = now;
-    r.animMs = 1500; // the client plays a short "game start" intro
-    r.tradeId = null;
-    r.tradeAt = 0;
-    r.hotels = {};
+    r.animMs = a.startAnimMs || 0; // e.g. a short "game start" intro the client plays
+    r.meta = {};
+    r.deadlines = {};
+    this.syncDeadlines(); // a game may start with a timer already running
     r.afk = {};
     r.disc = {};
     r.noHumanSince = null;
@@ -683,7 +701,9 @@ export class GameRoom extends DurableObject {
   async onAction(ws, me, msg) {
     const r = this.room;
     if (r.status !== 'playing' || !r.state) return this.sendError(ws, 'No game is in progress.');
-    const action = sanitizeAction(msg.action, me.id); // playerId is forced to the socket's user
+    const a = this.adapter;
+    // playerId is forced to the socket's user
+    const action = typeof a.sanitizeAction === 'function' ? a.sanitizeAction(msg.action, me.id) : defaultSanitizeAction(msg.action, me.id);
     if (!action) return this.sendError(ws, 'Invalid action.');
     delete r.afk[me.id]; // a human who acts is no longer idle
     delete r.disc[me.id];
@@ -696,37 +716,22 @@ export class GameRoom extends DurableObject {
 
   /**
    * Apply one action to the authoritative state, bump seq, broadcast, persist, reschedule.
-   * Returns the engine result (with `error` when rejected; nothing is changed then).
+   * Returns the adapter result (with `error` when rejected; nothing is changed then).
    */
   async applyAndBroadcast(action) {
     const r = this.room;
-    const res = engine.applyAction(r.state, action);
+    const a = this.adapter;
+    const res = a.applyAction(r.state, action);
     if (res.error) return res;
     r.state = res.state;
     r.seq += 1;
     r.lastApplyAt = Date.now();
-    r.animMs = estimateAnimMs(res.events);
-    r.hotels ||= {};
-    // Count hotels built (level events at MAX_LEVEL caused by an upgrade) for the match record.
-    for (const ev of res.events) {
-      if (ev.type === 'level' && ev.reason === 'upgrade' && ev.level >= MAX_LEVEL) {
-        const owner = r.state.owners[ev.tile];
-        if (owner) r.hotels[owner] = (r.hotels[owner] || 0) + 1;
-      }
-    }
-    // A pending trade offer gets its own 30 s clock (counted from when its animation ends).
-    if (r.state.trade) {
-      if (r.tradeId !== r.state.trade.id) {
-        r.tradeId = r.state.trade.id;
-        r.tradeAt = r.lastApplyAt + r.animMs;
-      }
-    } else {
-      r.tradeId = null;
-      r.tradeAt = 0;
-    }
+    r.animMs = typeof a.animationMs === 'function' ? a.animationMs(res.events) : 0;
+    if (typeof a.track === 'function') r.meta = a.track(r.meta || {}, res.events, r.state) || r.meta || {};
+    this.syncDeadlines();
     this.touch();
     this.broadcastState(res.events);
-    if (r.state.phase === 'over') {
+    if (a.isOver(r.state)) {
       r.status = 'finished';
       r.endedAt = Date.now();
       r.persistAt = Date.now();
@@ -737,11 +742,23 @@ export class GameRoom extends DurableObject {
     return res;
   }
 
+  /**
+   * Game timers (adapter.deadlines): a timer that is new gets its clock started when the animation
+   * of the action that created it ends; timers that persist keep their start; finished ones go.
+   */
+  syncDeadlines() {
+    const r = this.room;
+    const list = typeof this.adapter.deadlines === 'function' ? this.adapter.deadlines(r.state) || [] : [];
+    const next = {};
+    for (const d of list) next[d.key] = r.deadlines?.[d.key] ?? r.lastApplyAt + r.animMs;
+    r.deadlines = next;
+  }
+
   async onChat(ws, me, msg) {
     const now = Date.now();
     if (now - (this.chatAt.get(me.id) || 0) < CHAT_GAP_MS) return; // silently drop floods
     const text = sanitizeChat(msg.text);
-    const emote = sanitizeEmote(msg.emote);
+    const emote = sanitizeEmote(msg.emote, this.adapter.emotes || []);
     if (!text && !emote) return;
     this.chatAt.set(me.id, now);
     this.broadcast({ t: 'chat', id: randomId(8), from: me.id, name: me.name, text, emote, ts: now });
@@ -756,62 +773,53 @@ export class GameRoom extends DurableObject {
   // ------------------------------------------------------------------ timers (alarms)
 
   /**
-   * What the game is waiting for next: `{ at, id, action, timeout }` or null.
-   * - bots / idle (afk) / disconnected-past-grace humans move after a short pause;
-   * - a connected human gets TURN_MS (counted from when the last animation ends), then
-   *   is flagged idle and auto-played.
+   * What the game is waiting for next: `{ at, id, action, timeout }` or null. Candidates:
+   * - the adapter's own timers (`deadlines`, e.g. an unanswered offer is auto-rejected);
+   * - the bot that should move (`nextBotMove`), after a short pause;
+   * - every human the game waits for (`pendingPlayerIds`): idle (afk) and disconnected-past-grace
+   *   humans are auto-played (`idleAction`) after the same short pause; a connected human gets
+   *   TURN_MS (counted from when the last animation ends), then is flagged idle.
+   * The earliest one wins.
    */
   plan() {
     const r = this.room;
-    if (!r || r.status !== 'playing' || !r.state || r.state.phase === 'over') return null;
-    if (r.state.trade) return this.planTrade();
-    let best = null;
-    for (const id of pendingActors(r.state)) {
-      const p = r.state.players.find((x) => x.id === id);
-      const action = autoMove(r.state, id);
-      if (!p || !action) continue;
-      const pace = r.lastApplyAt + Math.max(action.type === 'BID' ? BID_DELAY_MS : BOT_DELAY_MS, r.animMs);
+    const a = this.adapter;
+    if (!r || !a || r.status !== 'playing' || !r.state || a.isOver(r.state)) return null;
+    const pace = (action) => {
+      const delay = typeof a.moveDelayMs === 'function' ? a.moveDelayMs(action) : BOT_DELAY_MS;
+      return r.lastApplyAt + Math.max(delay, r.animMs);
+    };
+    const candidates = [];
+
+    const deadlines = typeof a.deadlines === 'function' ? a.deadlines(r.state) || [] : [];
+    for (const d of deadlines) {
+      const startedAt = r.deadlines?.[d.key] ?? r.lastApplyAt + r.animMs;
+      candidates.push({ at: startedAt + d.afterMs, id: d.playerId, action: d.action, timeout: false });
+    }
+
+    const botMove = a.nextBotMove(r.state, Math.random);
+    if (botMove) candidates.push({ at: pace(botMove), id: botMove.playerId, action: botMove, timeout: false });
+
+    const waiting = typeof a.pendingPlayerIds === 'function' ? a.pendingPlayerIds(r.state) : [a.turnPlayerId(r.state)];
+    for (const id of waiting) {
+      const seat = id == null ? null : r.players.find((p) => p.id === id);
+      if (!seat || seat.isBot) continue; // bots are covered by nextBotMove
+      const action = a.idleAction(r.state, id);
+      if (!action) continue;
       let at;
       let timeout = false;
-      if (p.isBot || r.afk[id]) at = pace;
-      else if (r.disc[id] != null) at = Math.max(pace, r.disc[id] + GRACE_MS);
+      if (r.afk[id]) at = pace(action);
+      else if (r.disc[id] != null) at = Math.max(pace(action), r.disc[id] + GRACE_MS);
       else {
         at = r.lastApplyAt + r.animMs + TURN_MS;
         timeout = true;
       }
-      if (!best || at < best.at) best = { at, id, action, timeout };
+      candidates.push({ at, id, action, timeout });
     }
-    return best;
-  }
 
-  /**
-   * A trade offer is pending (only TRADE_ACCEPT/REJECT by `to` and TRADE_CANCEL by `from` are
-   * legal). Bots answer through the engine; a human who does not answer within TRADE_MS (or is
-   * idle / gone) gets a TRADE_REJECT; if the recipient is out of the game the offer is cancelled.
-   * Ignoring an offer does not mark the player idle.
-   */
-  planTrade() {
-    const r = this.room;
-    const t = r.state.trade;
-    const now = Date.now();
-    const pace = r.lastApplyAt + Math.max(BOT_DELAY_MS, r.animMs);
-    const to = r.state.players.find((p) => p.id === t.to);
-    const from = r.state.players.find((p) => p.id === t.from);
-    const gone = (p) => !p || p.bankrupt;
-    const absent = (p) => p && !p.isBot && (r.afk[p.id] || (r.disc[p.id] != null && now - r.disc[p.id] >= GRACE_MS));
-    if (gone(to)) return { at: pace, id: t.from, action: { type: 'TRADE_CANCEL', playerId: t.from }, timeout: false };
-    if (to.isBot) {
-      const action = autoMove(r.state, to.id) || { type: 'TRADE_REJECT', playerId: to.id };
-      return { at: pace, id: to.id, action, timeout: false };
-    }
-    const reject = { type: 'TRADE_REJECT', playerId: to.id };
-    let at = r.tradeAt + TRADE_MS;
-    if (absent(to)) at = pace;
-    // The offering human walked away: take the offer back instead of making the table wait.
-    if (!gone(from) && absent(from) && !from.isBot) {
-      return { at: Math.min(at, pace), id: from.id, action: { type: 'TRADE_CANCEL', playerId: from.id }, timeout: false };
-    }
-    return { at, id: to.id, action: reject, timeout: false };
+    let best = null;
+    for (const c of candidates) if (!best || c.at < best.at) best = c;
+    return best;
   }
 
   /** Reconcile `disc` with the live sockets (covers restarts that dropped sockets silently). */
@@ -856,6 +864,8 @@ export class GameRoom extends DurableObject {
       for (const p of r.players) {
         if (!p.isBot && r.disc[p.id] != null) times.push(r.disc[p.id] + LOBBY_GRACE_MS);
       }
+      // A public lobby refreshes its listing row now and then so it keeps counting as fresh.
+      if (r.visibility === 'public' && hasDb(this.env)) times.push(this.listedAt + LISTING_HEARTBEAT_MS);
     }
     const when = Math.max(Math.min(...times), now + 5);
     await this.ctx.storage.setAlarm(when);
@@ -880,7 +890,7 @@ export class GameRoom extends DurableObject {
     if (!r) return;
     const now = Date.now();
 
-    // 1) Expired room: tell everyone, close, wipe.
+    // 1) Expired room: tell everyone, close, wipe (and take it off the listing).
     if (now - r.lastActivity >= ROOM_TTL_MS) {
       for (const ws of this.ctx.getWebSockets()) {
         this.send(ws, { t: 'error', message: 'This room has expired.' });
@@ -890,15 +900,22 @@ export class GameRoom extends DurableObject {
           /* ignore */
         }
       }
+      this.dropListing(r.code);
       await this.ctx.storage.deleteAlarm();
       await this.ctx.storage.deleteAll();
       this.room = null;
+      this.adapter = null;
+      return;
+    }
+    if (!this.adapter) {
+      // The game was removed from the registry: nothing can be played, just wait for the expiry.
+      await this.scheduleAlarm();
       return;
     }
 
     let dirty = this.reconcileConnections(now);
 
-    // 2) Lobby housekeeping: drop members who vanished.
+    // 2) Lobby housekeeping: drop members who vanished; keep a public listing fresh.
     if (r.status === 'lobby') {
       const gone = r.players.filter((p) => !p.isBot && r.disc[p.id] != null && now - r.disc[p.id] >= LOBBY_GRACE_MS);
       if (gone.length) {
@@ -910,6 +927,8 @@ export class GameRoom extends DurableObject {
         await this.save();
         this.broadcastRoom();
         dirty = false;
+      } else if (r.visibility === 'public') {
+        this.syncListing(); // no-op unless the heartbeat is due
       }
     }
 
@@ -946,21 +965,32 @@ export class GameRoom extends DurableObject {
     await this.scheduleAlarm();
   }
 
-  /** Safety net: an automated move the engine rejected must never stall the game. */
+  /** Safety net: an automated move the game rejected must never stall it. */
   async handleAutoFailure(playerId, error) {
+    const r = this.room;
     const n = (this.autoFailures.get(playerId) || 0) + 1;
     this.autoFailures.set(playerId, n);
     console.error(`auto-move rejected (${n}):`, error);
     if (n >= 3) {
       this.autoFailures.delete(playerId);
-      await this.applyAndBroadcast({ type: 'RESIGN', playerId });
+      const resign = typeof this.adapter.resignAction === 'function' ? this.adapter.resignAction(r.state, playerId) : null;
+      if (resign) {
+        await this.applyAndBroadcast(resign);
+      } else {
+        // Nothing can unstick this game: call it off (it is not recorded).
+        r.status = 'finished';
+        r.abandoned = true;
+        r.endedAt = Date.now();
+        await this.save();
+        this.broadcastRoom();
+      }
     }
   }
 
   async persist() {
     const r = this.room;
     try {
-      const rec = buildMatchRecord(r);
+      const rec = buildMatchRecord(r, this.adapter);
       await persistMatch(this.env, rec);
       r.persisted = true;
       r.persistAt = null;

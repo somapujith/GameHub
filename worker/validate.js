@@ -54,8 +54,8 @@ export function sanitizeChat(input) {
   return chars.length > CHAT_MAX ? chars.slice(0, CHAT_MAX).join('') : s;
 }
 
-/** Emote key if it is one of the known soundboard keys, else ''. */
-export const sanitizeEmote = (v) => (typeof v === 'string' && EMOTES.includes(v) ? v : '');
+/** Emote key if it is on the allow-list (default: the Tycoon soundboard keys), else ''. */
+export const sanitizeEmote = (v, allowed = EMOTES) => (typeof v === 'string' && allowed.includes(v) ? v : '');
 
 // Actions that carry no parameters besides the (server-forced) player id.
 const SIMPLE_ACTIONS = new Set([

@@ -1,9 +1,11 @@
-// Pure helpers for room codes and friend codes (no React, unit-tested).
+// Pure helpers for room codes, friend codes and share links (no React, unit-tested).
 // Alphabet: no 0/O/1/I so codes survive being read out loud or typed from a screenshot.
+import { paths } from '@/platform/paths.js';
+import BRAND from '@/platform/brand.js';
 
 export const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 export const ROOM_CODE_LENGTH = 6;
-export const FRIEND_PREFIX = 'HYD';
+export const FRIEND_PREFIX = BRAND.friendCodePrefix || 'HYD';
 export const FRIEND_CODE_BODY = 4;
 
 const ALLOWED = new Set(CODE_ALPHABET);
@@ -53,6 +55,46 @@ export function isFriendCode(code) {
   return typeof code === 'string' && new RegExp(`^${FRIEND_PREFIX}-[${CODE_ALPHABET}]{${FRIEND_CODE_BODY}}$`).test(code);
 }
 
+/**
+ * Pull a friend code out of anything a person might paste: a friend link (`https://x/f/HYD-7K2Q`, `/f/hyd7k2q?x=1`),
+ * an old share link (`/friends?add=HYD-7K2Q`) or the bare code in any case or spacing.
+ * Returns a complete `HYD-XXXX` code, or '' when there is none.
+ */
+export function parseFriendLink(raw) {
+  const s = String(raw ?? '').trim();
+  if (!s) return '';
+  let candidate = s;
+  if (/^https?:\/\//i.test(s) || s.includes('/') || s.includes('?')) {
+    let url = null;
+    try {
+      url = new URL(s, 'https://gamehub.invalid');
+    } catch {
+      url = null;
+    }
+    if (!url) return '';
+    const m = url.pathname.match(/\/f\/([^/]+)/i);
+    if (m) {
+      try {
+        candidate = decodeURIComponent(m[1]);
+      } catch {
+        candidate = m[1];
+      }
+    } else if (url.searchParams.get('add')) {
+      candidate = url.searchParams.get('add');
+    } else {
+      return '';
+    }
+  }
+  // strict: after removing spaces/dashes the code is exactly "HYD" + 4 valid characters (or just the 4 characters),
+  // so ordinary words and half-typed codes never turn into a "valid" code
+  const cleaned = String(candidate).toUpperCase().replace(/[\s-]/g, '');
+  const bodies = cleaned.startsWith(FRIEND_PREFIX) ? [cleaned.slice(FRIEND_PREFIX.length), cleaned] : [cleaned];
+  for (const body of bodies) {
+    if (body.length === FRIEND_CODE_BODY && [...body].every((c) => ALLOWED.has(c))) return `${FRIEND_PREFIX}-${body}`;
+  }
+  return '';
+}
+
 /** Only allow same-site relative redirects (`?next=`): no `//evil.com`, no `https:`, no backslashes. */
 export function safeNext(next, fallback = '/') {
   if (typeof next !== 'string') return fallback;
@@ -67,25 +109,52 @@ export function spacedCode(code) {
   return c.length === ROOM_CODE_LENGTH ? `${c.slice(0, 3)} ${c.slice(3)}` : c;
 }
 
-export function lobbyLink(code, origin = globalThis.location?.origin ?? '') {
-  return `${origin}/join/${code}`;
+const here = () => globalThis.location?.origin ?? '';
+
+/** The shared room link, `<origin>/join/ABC234`: the join page checks the room, then opens the lobby. */
+export function joinLink(code, origin = here()) {
+  return `${origin}${paths.join(code)}`;
+}
+/** Older name for `joinLink`. */
+export const lobbyLink = joinLink;
+
+/** A room invite as two short lines (`text`) plus the link (`url`), so Web Share can use them separately. */
+export function inviteMessage(code, gameName, origin) {
+  const name = gameName || BRAND.name;
+  return {
+    title: name,
+    text: `Come play ${name} with me on ${BRAND.name}! 🎲\nRoom code: ${code}`,
+    url: joinLink(code, origin),
+  };
 }
 
-/** WhatsApp invite text (Telugu first, English second) + wa.me link. */
-export function inviteText(code, origin) {
-  return (
-    `హైదరాబాద్ టైకూన్ ఆడదాం రండి! 🎲\n` +
-    `Come play Hyderabad Tycoon with me! Room code: ${code}\n` +
-    lobbyLink(code, origin)
-  );
+/** WhatsApp / copy-paste invite text (message + link). */
+export function inviteText(code, gameName, origin) {
+  const m = inviteMessage(code, gameName, origin);
+  return `${m.text}\n${m.url}`;
 }
 
-export function whatsappUrl(code, origin) {
-  return `https://wa.me/?text=${encodeURIComponent(inviteText(code, origin))}`;
+export function whatsappUrl(code, gameName, origin) {
+  return `https://wa.me/?text=${encodeURIComponent(inviteText(code, gameName, origin))}`;
 }
 
-export function friendShareText(friendCode, origin = globalThis.location?.origin ?? '') {
-  return `Add me on Hyderabad Tycoon! Friend code: ${friendCode}\n${origin}/friends?add=${friendCode}`;
+/** The friend link for a friend code: `<origin>/f/HYD-7K2Q`. */
+export function friendLinkUrl(friendCode, origin = here()) {
+  return `${origin}${paths.friendLink(friendCode)}`;
+}
+
+/** What sharing your friend link says. */
+export function friendInviteMessage(friendCode, origin) {
+  return {
+    title: BRAND.name,
+    text: `Add me on ${BRAND.name}! Friend code: ${friendCode}`,
+    url: friendLinkUrl(friendCode, origin),
+  };
+}
+
+export function friendShareText(friendCode, origin) {
+  const m = friendInviteMessage(friendCode, origin);
+  return `${m.text}\n${m.url}`;
 }
 
 /**
@@ -103,4 +172,12 @@ export function roomProblem(info, myId) {
   const count = players ? players.length : Number(info.players);
   if (Number.isFinite(count) && Number.isFinite(info.maxPlayers) && info.maxPlayers > 0 && count >= info.maxPlayers) return 'That room is full.';
   return null;
+}
+
+/** Player count from a room-info payload (`players` is a count over HTTP, a list elsewhere). */
+export function playerCountOf(info) {
+  if (!info) return 0;
+  if (Array.isArray(info.players)) return info.players.length;
+  const n = Number(info.players);
+  return Number.isFinite(n) && n >= 0 ? Math.floor(n) : 0;
 }

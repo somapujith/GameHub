@@ -1,27 +1,41 @@
-import { useCallback, useEffect } from 'react';
-import { Navigate, useNavigate, useParams } from 'react-router-dom';
-import GameView from '@/components/game/GameView.jsx';
+import { useEffect, useMemo, useState } from 'react';
+import { Navigate, useParams } from 'react-router-dom';
+import { getRoom } from '@/lib/api.js';
 import { useAuth } from '@/lib/auth.jsx';
-import { useOnlineGame } from '@/lib/session/useOnlineGame.js';
+import { paths } from '@/platform/paths.js';
 import { isRoomCode, normalizeRoomCode } from '@/components/online/codes.js';
+import { gameOf, gameName, loadOnlineGame, loadedOnlineGame } from '@/components/online/games.js';
+import { knownRoomGame, lookupResult, resolveOnlineRoute } from '@/components/online/gameRoute.js';
 import StatusPanel from '@/components/online/StatusPanel.jsx';
-import { useToasts } from '@/components/online/Toasts.jsx';
 import '@/styles/online.css';
 
 function Screen({ children }) {
   return <div className="ho-screen">{children}</div>;
 }
 
-/** /game/online/:code — connects to the room and renders the shared GameView. */
+/**
+ * /play/:gameId/online/:code: the generic dispatcher. It knows no game. It finds the game in the registry,
+ * checks the room really belongs to it (otherwise redirects to the room's own game), lazy-loads
+ * `manifest.loaders.onlineGame` and renders it with nothing but the route params (the plugin reads `useParams()`).
+ */
 export default function OnlineGame() {
-  const { code: rawCode } = useParams();
+  const { gameId, code: rawCode } = useParams();
   const code = normalizeRoomCode(rawCode || '');
   const { user, loading } = useAuth();
 
   if (!isRoomCode(code)) {
     return (
       <Screen>
-        <StatusPanel icon="?" tone="bad" title="That is not a room code" body="Room codes are 6 letters or numbers, like ABC234." actions={[{ label: 'Home', to: '/', primary: true }, { label: 'Enter a code', to: '/join' }]} />
+        <StatusPanel
+          icon="?"
+          tone="bad"
+          title="That is not a room code"
+          body="Room codes are 6 letters or numbers, like ABC234."
+          actions={[
+            { label: 'Home', to: paths.hub(), primary: true },
+            { label: 'Enter a code', to: paths.join() },
+          ]}
+        />
       </Screen>
     );
   }
@@ -32,83 +46,160 @@ export default function OnlineGame() {
       </Screen>
     );
   }
-  if (!user) return <Navigate to={`/login?next=${encodeURIComponent(`/game/online/${code}`)}`} replace />;
-  return <OnlineGameInner code={code} />;
+  if (!user) return <Navigate to={paths.login(paths.online(gameId, code))} replace />;
+  return <Dispatch gameId={gameId} code={code} />;
 }
 
-function OnlineGameInner({ code }) {
-  const navigate = useNavigate();
-  const { push, node } = useToasts();
-  const { room, session, status, error, errorId, fatal } = useOnlineGame(code);
+/** The room check: null while pending, else the `resolveOnlineRoute` outcome. */
+function useRoomRoute(gameId, code) {
+  const initial = useMemo(() => {
+    const known = knownRoomGame(code); // the lobby just told us which game this room is
+    return known ? resolveOnlineRoute({ gameId, code, room: { gameId: known } }) : null;
+  }, [gameId, code]);
+  const [looked, setLooked] = useState(null); // { gameId, code, route }
 
-  // rejected actions ("not your turn", ...) show as a toast
   useEffect(() => {
-    if (errorId && error) push(error, 'bad');
-  }, [errorId, error, push]);
+    if (initial) return undefined;
+    let alive = true;
+    const done = (err, info) => {
+      if (alive) setLooked({ gameId, code, route: resolveOnlineRoute({ gameId, code, room: lookupResult(err, info) }) });
+    };
+    getRoom(code).then(
+      (info) => done(null, info),
+      (err) => done(err),
+    );
+    return () => {
+      alive = false;
+    };
+  }, [gameId, code, initial]);
 
-  // the match ended: leaving the room is implicit; mid-game, leaving must tell the server
-  const exit = useCallback(() => {
-    if (!session.view || session.view.phase !== 'over') session.quit();
-    navigate('/', { replace: true });
-  }, [session, navigate]);
+  if (initial) return initial;
+  return looked && looked.gameId === gameId && looked.code === code ? looked.route : null;
+}
 
-  if (fatal) {
-    if (fatal.kind === 'left') return <Navigate to="/" replace />;
-    if (fatal.kind === 'auth') return <Navigate to={`/login?next=${encodeURIComponent(`/game/online/${code}`)}`} replace />;
-    const kicked = fatal.kind === 'kicked';
+/** Loads the game's online page (in parallel with the room check); `{ Comp, error, retry }`. */
+function useOnlinePage(game) {
+  const [state, setState] = useState(() => ({ id: game && game.id, Comp: game ? loadedOnlineGame(game.id) : null, error: null }));
+  const [attempt, setAttempt] = useState(0);
+  const id = game ? game.id : null;
+  const playable = !!(game && game.status !== 'coming_soon' && game.loaders && typeof game.loaders.onlineGame === 'function');
+
+  useEffect(() => {
+    if (!playable) return undefined;
+    let alive = true;
+    const cached = loadedOnlineGame(id);
+    if (cached) {
+      setState({ id, Comp: cached, error: null });
+      return undefined;
+    }
+    setState({ id, Comp: null, error: null });
+    loadOnlineGame(game).then(
+      (Comp) => alive && setState({ id, Comp, error: null }),
+      (error) => alive && setState({ id, Comp: null, error: error || new Error('load failed') }),
+    );
+    return () => {
+      alive = false;
+    };
+    // `game` is the registry's stable manifest object; `id` identifies it
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id, playable, attempt]);
+
+  const fresh = state.id === id;
+  return { playable, Comp: fresh ? state.Comp : loadedOnlineGame(id), error: fresh ? state.error : null, retry: () => setAttempt((n) => n + 1) };
+}
+
+function Dispatch({ gameId, code }) {
+  const game = gameOf(gameId);
+  const route = useRoomRoute(gameId, code);
+  const page = useOnlinePage(game);
+
+  if (route && route.kind === 'redirect') return <Navigate to={route.to} replace />;
+
+  if (route && route.kind === 'missing') {
     return (
       <Screen>
         <StatusPanel
-          icon={kicked ? '🚪' : '!'}
+          icon="?"
           tone="bad"
-          title={kicked ? 'You were removed from the match' : fatal.kind === 'join' ? "Can't join this match" : 'Lost the connection'}
-          body={fatal.message}
+          title="That room no longer exists"
+          body="Rooms close a little while after everyone leaves. Ask the host for a new code, or start a new table."
           actions={[
-            ...(fatal.kind === 'closed' ? [{ label: 'Reconnect', onClick: () => window.location.reload(), primary: true }] : []),
-            { label: 'Home', to: '/', primary: !fatal.kind || fatal.kind !== 'closed' },
-            { label: 'Join another room', to: '/join' },
+            { label: 'Enter a code', to: paths.join(), primary: true },
+            { label: 'Home', to: paths.hub() },
           ]}
         />
       </Screen>
     );
   }
 
-  // the room is (back) in the lobby: the game is not running yet
-  if (status === 'lobby') return <Navigate to={`/lobby/${code}`} replace />;
+  if (!game && !route) {
+    // the room may belong to a game we do know: wait for the lookup before giving up
+    return (
+      <Screen>
+        <StatusPanel busy title="Joining the match..." />
+      </Screen>
+    );
+  }
 
-  if (!session.view) {
-    if (status === 'finished') {
-      return (
-        <Screen>
-          <StatusPanel icon="🏁" title="This game has finished" body="The match in this room is over." actions={[{ label: 'Home', to: '/', primary: true }]} />
-        </Screen>
-      );
-    }
+  if (!game) {
     return (
       <Screen>
         <StatusPanel
-          busy
-          title={status === 'reconnecting' ? 'Reconnecting...' : room ? 'Waiting for the match...' : 'Joining the match...'}
-          body={status === 'reconnecting' ? 'Your seat is kept. Hang on a moment.' : 'Getting the board ready.'}
-          actions={[{ label: 'Leave', onClick: exit }]}
+          icon="?"
+          tone="bad"
+          title="We do not have that game"
+          body={`There is no game called "${gameId}" here. The link may be old, or from a newer version of the app.`}
+          actions={[
+            { label: 'Browse games', to: paths.hub(), primary: true },
+            { label: 'Enter a code', to: paths.join() },
+          ]}
         />
       </Screen>
     );
   }
 
-  return (
-    <>
-      <GameView session={session} onExit={exit} />
-      {session.connection !== 'open' && (
-        <div className="ho-conn" role="status" aria-live="polite">
-          <span className="ho-spinner" aria-hidden="true" />
-          <span className="ho-conn__text">Reconnecting... if you stay offline you will be auto-played.</span>
-          <button type="button" className="ho-btn ho-btn--ghost ho-btn--sm" onClick={exit}>
-            Leave
-          </button>
-        </div>
-      )}
-      {node}
-    </>
-  );
+  if (!page.playable) {
+    return (
+      <Screen>
+        <StatusPanel
+          icon="🔜"
+          title={`${gameName(game.id, game)} is not playable online yet`}
+          body="This game is still being built. Check back soon."
+          actions={[
+            { label: 'About the game', to: paths.game(game.id), primary: true },
+            { label: 'Home', to: paths.hub() },
+          ]}
+        />
+      </Screen>
+    );
+  }
+
+  if (page.error) {
+    return (
+      <Screen>
+        <StatusPanel
+          icon="!"
+          tone="bad"
+          title={`Could not load ${gameName(game.id, game)}`}
+          body="The game files did not load. Check your connection and try again."
+          actions={[
+            { label: 'Try again', onClick: page.retry, primary: true },
+            { label: 'Back to the lobby', to: paths.lobby(code) },
+            { label: 'Home', to: paths.hub() },
+          ]}
+        />
+      </Screen>
+    );
+  }
+
+  if (!route || !page.Comp) {
+    return (
+      <Screen>
+        <StatusPanel busy title="Joining the match..." body={`Getting ${gameName(game.id, game)} ready.`} />
+      </Screen>
+    );
+  }
+
+  const GamePage = page.Comp;
+  return <GamePage key={`${game.id}:${code}`} />;
 }

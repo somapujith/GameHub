@@ -1,42 +1,27 @@
-import { NavLink, useLocation } from 'react-router-dom';
-import { Icon } from './icons.jsx';
+import { Link } from 'react-router-dom';
+import HubIcon from '@/platform/game/HubIcon.jsx';
+import { NAV_ITEMS, useIsActive } from './nav/navItems.js';
 
-/* Each item lists the path prefixes that should light it up. */
-export const TABS = [
-  { to: '/', label: 'Home', icon: 'home', match: ['/'], exact: true },
-  { to: '/play', label: 'Play', icon: 'play', match: ['/play', '/campaign'] },
-  { to: '/friends', label: 'Friends', icon: 'users', match: ['/friends', '/lobby', '/join'] },
-  { to: '/settings', label: 'Profile', icon: 'user', match: ['/settings', '/leaderboard', '/login'] },
-];
+/** Kept for the barrel (`@/components/shell/index.js`): both lists are the same four hub destinations. */
+export const TABS = NAV_ITEMS;
+export const NAV = NAV_ITEMS;
 
-export const NAV = [
-  { to: '/', label: 'Home', icon: 'home', match: ['/'], exact: true },
-  { to: '/play', label: 'Play', icon: 'play', match: ['/play'] },
-  { to: '/friends', label: 'Friends', icon: 'users', match: ['/friends', '/lobby', '/join'] },
-  { to: '/campaign', label: 'Explore', icon: 'map', match: ['/campaign', '/story'] },
-];
-
-function useActive() {
-  const { pathname } = useLocation();
-  return (item) => (item.exact ? pathname === '/' : item.match.some((m) => pathname === m || pathname.startsWith(`${m}/`)));
-}
-
-/** Bottom tab bar, shown on phones and tablets (hidden >= 900px by CSS). */
+/** Bottom tab bar, shown on phones and tablets (hidden >= 900 px, where the left rail takes over). */
 export default function TabBar() {
-  const active = useActive();
+  const active = useIsActive();
   return (
-    <nav className="hh-tabbar" aria-label="Primary">
+    <nav className="hub-tabbar" aria-label="Primary">
       <ul>
-        {TABS.map((t) => {
+        {NAV_ITEMS.map((t) => {
           const on = active(t);
           return (
-            <li key={t.to}>
-              <NavLink to={t.to} end className={`hh-tab ${on ? 'is-active' : ''}`} aria-current={on ? 'page' : undefined}>
-                <span className="hh-tab__icon">
-                  <Icon name={t.icon} size={24} strokeWidth={on ? 2.4 : 2} />
+            <li key={t.id}>
+              <Link to={t.to} className={`hub-tab${on ? ' is-active' : ''}`} aria-current={on ? 'page' : undefined}>
+                <span className="hub-tab__icon">
+                  <HubIcon name={t.icon} size={22} strokeWidth={on ? 2.3 : 2} />
                 </span>
-                <span className="hh-tab__label">{t.label}</span>
-              </NavLink>
+                <span className="hub-tab__label">{t.label}</span>
+              </Link>
             </li>
           );
         })}
@@ -45,20 +30,26 @@ export default function TabBar() {
   );
 }
 
-/** Horizontal nav for the top bar on wide screens (hidden < 900px by CSS). */
+/** Left rail for wide screens (>= 900 px; hidden below by CSS). Same destinations as the tab bar. */
 export function TopNav() {
-  const active = useActive();
+  const active = useIsActive();
   return (
-    <nav className="hh-topnav" aria-label="Main">
-      {NAV.map((t) => {
-        const on = active(t);
-        return (
-          <NavLink key={t.to} to={t.to} end className={`hh-topnav__link ${on ? 'is-active' : ''}`} aria-current={on ? 'page' : undefined}>
-            <Icon name={t.icon} size={18} />
-            <span>{t.label}</span>
-          </NavLink>
-        );
-      })}
+    <nav className="hub-rail" aria-label="Main">
+      <ul>
+        {NAV_ITEMS.map((t) => {
+          const on = active(t);
+          return (
+            <li key={t.id}>
+              <Link to={t.to} className={`hub-rail__link${on ? ' is-active' : ''}`} aria-current={on ? 'page' : undefined}>
+                <span className="hub-rail__icon">
+                  <HubIcon name={t.icon} size={22} strokeWidth={on ? 2.3 : 2} />
+                </span>
+                <span className="hub-rail__label">{t.label}</span>
+              </Link>
+            </li>
+          );
+        })}
+      </ul>
     </nav>
   );
 }

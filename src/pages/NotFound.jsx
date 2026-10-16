@@ -1,61 +1,70 @@
 import { Link, useLocation } from 'react-router-dom';
-import { Icon } from '@/components/shell/icons.jsx';
+import { BRAND } from '@/platform/brand.js';
+import { paths } from '@/platform/paths.js';
+import HubIcon from '@/platform/game/HubIcon.jsx';
+import useDocTitle from '@/platform/game/useDocTitle.js';
 
-/** Friendly Hyderabad-themed 404. */
+const PIPS = [
+  [-19, -19],
+  [19, -19],
+  [-19, 19],
+  [19, 19],
+];
+
+function Die({ x, y, rot }) {
+  return (
+    <g transform={`translate(${x} ${y}) rotate(${rot})`}>
+      <rect x="-44" y="-44" width="88" height="88" rx="20" fill="#0a0f1f" opacity=".35" transform="translate(0 6)" />
+      <rect x="-44" y="-44" width="88" height="88" rx="20" fill="url(#nf404a)" />
+      <rect x="-43" y="-43" width="86" height="86" rx="19" fill="none" stroke="#fff" strokeOpacity=".35" />
+      {PIPS.map(([px, py]) => (
+        <circle key={`${px}${py}`} cx={px} cy={py} r="7.5" fill="#fff" />
+      ))}
+    </g>
+  );
+}
+
+/** Hub-themed 404: a "4 0 4" made of two dice and a token. */
 export default function NotFound() {
   const { pathname } = useLocation();
+  useDocTitle(`Page not found · ${BRAND.name}`);
   return (
-    <div className="hh-404">
-      <div className="hh-404__art" aria-hidden="true">
-        <svg viewBox="0 0 280 150" width="280" height="150" focusable="false">
+    <section className="hub-404" aria-labelledby="hub-404-h">
+      <div className="hub-404__art" aria-hidden="true">
+        <svg viewBox="0 0 320 170" focusable="false">
           <defs>
-            <linearGradient id="hh404a" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0" stopColor="#ffd978" />
-              <stop offset="1" stopColor="#ffb100" />
+            <linearGradient id="nf404a" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0" stopColor="#9a8bff" />
+              <stop offset="1" stopColor="#5b4cf0" />
+            </linearGradient>
+            <linearGradient id="nf404b" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0" stopColor="#ffb84d" />
+              <stop offset="1" stopColor="#ff5d73" />
             </linearGradient>
           </defs>
-          {/* road */}
-          <rect x="0" y="126" width="280" height="24" rx="4" fill="#1d1650" />
-          <path d="M10 138h32M62 138h32M114 138h32M166 138h32M218 138h32" stroke="#867eb3" strokeWidth="3" strokeLinecap="round" />
-          {/* Charminar silhouette */}
-          <g fill="#3a2f8c" stroke="#6a5bd1" strokeWidth="1.5">
-            <rect x="196" y="58" width="56" height="68" rx="3" />
-            <rect x="190" y="52" width="68" height="10" rx="3" />
-            <rect x="188" y="26" width="9" height="36" rx="3" />
-            <rect x="251" y="26" width="9" height="36" rx="3" />
-            <ellipse cx="192.5" cy="24" rx="6" ry="7" />
-            <ellipse cx="255.5" cy="24" rx="6" ry="7" />
-            <path d="M214 126V90a12 12 0 0 1 24 0v36z" fill="#140f33" />
-          </g>
-          {/* auto rickshaw */}
-          <g>
-            <path d="M40 108c0-26 16-40 40-40h22l8 18v22z" fill="url(#hh404a)" stroke="#b36b00" strokeWidth="2" strokeLinejoin="round" />
-            <path d="M62 78h22l6 14H58z" fill="#ffe9a8" opacity=".85" />
-            <rect x="34" y="104" width="86" height="12" rx="5" fill="#1b1340" />
-            <circle cx="56" cy="118" r="11" fill="#1b1340" />
-            <circle cx="56" cy="118" r="4.5" fill="#867eb3" />
-            <circle cx="108" cy="118" r="11" fill="#1b1340" />
-            <circle cx="108" cy="118" r="4.5" fill="#867eb3" />
-            <path d="M80 68l4-12h14" stroke="#1b1340" strokeWidth="3" strokeLinecap="round" fill="none" />
-          </g>
+          <ellipse cx="160" cy="150" rx="132" ry="9" fill="#000" opacity=".28" />
+          <Die x={62} y={88} rot={-9} />
+          <circle cx="160" cy="88" r="40" fill="none" stroke="#0a0f1f" strokeOpacity=".35" strokeWidth="18" transform="translate(0 6)" />
+          <circle cx="160" cy="88" r="40" fill="none" stroke="url(#nf404b)" strokeWidth="18" />
+          <circle cx="160" cy="88" r="49" fill="none" stroke="#fff" strokeOpacity=".3" />
+          <Die x={258} y={88} rot={8} />
         </svg>
       </div>
-      <p className="hh-404__code">404</p>
-      <h1 className="hh-404__title">Wrong gully, boss!</h1>
-      <p className="hh-404__text">
-        <code>{pathname}</code> isn't on our map. Maybe the auto-driver took a shortcut through a Charminar traffic jam.
+      <p className="hub-eyebrow">Error 404</p>
+      <h1 id="hub-404-h" className="hub-h1">
+        This table doesn't exist
+      </h1>
+      <p className="hub-lead">
+        We couldn't find <code>{pathname}</code>. The link may be old, or the room may have closed.
       </p>
-      <p className="hh-404__te" lang="te">
-        ఈ దారి ఎక్కడికీ వెళ్లదు
-      </p>
-      <div className="row hh-404__actions">
-        <Link to="/" className="btn btn--primary btn--lg">
-          <Icon name="home" size={18} /> Back home
+      <div className="hub-404__actions">
+        <Link to={paths.hub()} className="hub-btn hub-btn--primary hub-btn--lg">
+          <HubIcon name="gamepad" size={20} /> Browse games
         </Link>
-        <Link to="/play" className="btn btn--ghost btn--lg">
-          <Icon name="dice" size={18} /> Quick Play
-        </Link>
+        <button type="button" className="hub-btn hub-btn--ghost hub-btn--lg" onClick={() => window.dispatchEvent(new Event('hub:open-code'))}>
+          <HubIcon name="hash" size={20} /> Have a code?
+        </button>
       </div>
-    </div>
+    </section>
   );
 }

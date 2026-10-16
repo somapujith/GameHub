@@ -1,9 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, Navigate, useNavigate, useSearchParams } from 'react-router-dom';
-import { AVATAR_PRESETS, Avatar, Logo, Scene } from '@/components/art/index.js';
+import { AVATAR_PRESETS, Avatar } from '@/components/art/index.js';
+import { HubLogo } from '@/components/art/hub/index.js';
 import { errorMessage } from '@/lib/api.js';
 import { GoogleButton, useAuth } from '@/lib/auth.jsx';
 import { loadProfile } from '@/lib/storage.js';
+import BRAND from '@/platform/brand.js';
+import { paths } from '@/platform/paths.js';
 import { safeNext } from '@/components/online/codes.js';
 import { Loading } from '@/components/online/StatusPanel.jsx';
 import '@/styles/online.css';
@@ -70,15 +73,11 @@ export default function Login() {
 
   return (
     <div className="ho-page ho-login">
-      <header className="ho-hero">
-        <Scene name="charminar" className="ho-hero__scene" />
-        <div className="ho-hero__shade" aria-hidden="true" />
+      <header className="ho-hero ho-hero--hub">
+        <div className="ho-hero__glow" aria-hidden="true" />
         <div className="ho-hero__inner">
-          <Logo size={56} />
-          <p className="ho-hero__tag">
-            Play with friends, anywhere in Hyderabad.
-            <span lang="te"> స్నేహితులతో ఆడుకుందాం!</span>
-          </p>
+          <HubLogo size={52} />
+          <p className="ho-hero__tag">{BRAND.tagline} Pick a game, grab your friends, and play in seconds.</p>
         </div>
       </header>
 
@@ -95,7 +94,7 @@ export default function Login() {
               <button type="button" className="ho-btn ho-btn--primary" onClick={retry} disabled={retrying}>
                 {retrying ? 'Trying...' : 'Try again'}
               </button>
-              <Link to="/play" className="ho-btn ho-btn--ghost">
+              <Link to={paths.setup(BRAND.defaultGameId)} className="ho-btn ho-btn--ghost">
                 Play offline
               </Link>
             </div>
@@ -103,12 +102,12 @@ export default function Login() {
         ) : (
           <>
             <h1 id="ho-login-title" className="ho-h1">
-              {isGuestUser ? 'Sign in with Google' : 'Sign in to play online'}
+              {isGuestUser ? 'Sign in with Google' : `Sign in to ${BRAND.name}`}
             </h1>
             <p className="ho-muted">
               {isGuestUser
                 ? `You are playing as ${user.name} (guest). Sign in with Google to add friends and appear on the leaderboard.`
-                : 'Save your progress, add friends and climb the leaderboard.'}
+                : `Save your progress, add friends and climb the leaderboard on ${BRAND.name}.`}
             </p>
 
             <div className="ho-login__google">

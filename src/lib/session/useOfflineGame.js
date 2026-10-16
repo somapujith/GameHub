@@ -4,7 +4,7 @@
 //   useOfflineGame({ config: { players, settings, seed }, resume?: { state }, chapterId? }) -> session
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { createGame, applyAction, getOptions, nextBotMove, standings } from '@shared/index.js';
+import { createGame, applyAction, getOptions, nextBotMove, netWorth, standings } from '@shared/index.js';
 import { usePresenter } from './usePresenter.js';
 import { saveGame, clearGame } from '../storage.js';
 import { pickLine } from '../voiceLines.js';
@@ -171,7 +171,7 @@ export function useOfflineGame({ config, resume, chapterId } = {}) {
   const persist = useCallback((state) => {
     try {
       if (state.phase === 'over') clearGame();
-      else saveGame(state, { config: cfgRef.current, chapterId: chapterRef.current, me, round: state.round });
+      else saveGame(state, { config: cfgRef.current, chapterId: chapterRef.current, me, round: state.round, worth: netWorth(state, me) });
     } catch {
       /* storage problems must not stop the game */
     }

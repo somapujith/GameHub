@@ -1,4 +1,6 @@
-// Applies db/schema.sql to the Neon database (idempotent: CREATE ... IF NOT EXISTS only).
+// Applies db/schema.sql to the Neon database. Additive + idempotent only: CREATE ... IF NOT EXISTS,
+// ADD COLUMN IF NOT EXISTS, and the one-time `INSERT INTO user_game_stats ... ON CONFLICT DO NOTHING`
+// backfill. Anything else is refused (this script may run against the production database).
 //
 //   node scripts/migrate.js
 //
@@ -65,7 +67,19 @@ export function splitStatements(sqlText) {
     .filter(Boolean);
 }
 
-const TABLES = ['users', 'friendships', 'matches', 'match_players'];
+const TABLES = ['users', 'friendships', 'matches', 'match_players', 'user_game_stats', 'rooms'];
+
+/**
+ * The safety net: true only for statements that can be repeated without changing or losing data.
+ * The single data statement allowed is the user_game_stats backfill, which never overwrites a row.
+ */
+export function isAdditiveStatement(stmt) {
+  return (
+    /^CREATE\s+(UNIQUE\s+)?(TABLE|INDEX)\s+IF\s+NOT\s+EXISTS\b/i.test(stmt) ||
+    /^ALTER\s+TABLE\s+\w+\s+ADD\s+COLUMN\s+IF\s+NOT\s+EXISTS\b/i.test(stmt) ||
+    /^INSERT\s+INTO\s+user_game_stats\b[\s\S]*\bON\s+CONFLICT\s*\([^)]*\)\s*DO\s+NOTHING$/i.test(stmt)
+  );
+}
 
 async function main() {
   const url = loadDatabaseUrl();
@@ -79,10 +93,7 @@ async function main() {
   let n = 0;
   for (const stmt of statements) {
     // Safety net: this script must only ever run additive, idempotent statements.
-    const additive =
-      /^CREATE\s+(UNIQUE\s+)?(TABLE|INDEX)\s+IF\s+NOT\s+EXISTS\b/i.test(stmt) ||
-      /^ALTER\s+TABLE\s+\w+\s+ADD\s+COLUMN\s+IF\s+NOT\s+EXISTS\b/i.test(stmt);
-    if (!additive) {
+    if (!isAdditiveStatement(stmt)) {
       throw new Error(`Refusing to run non-idempotent statement #${n + 1}: ${stmt.slice(0, 40)}...`);
     }
     await sql.query(stmt);

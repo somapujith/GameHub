@@ -1,15 +1,47 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { api, errorMessage } from '@/lib/api.js';
+import { createRoom, errorMessage, getRoom } from '@/lib/api.js';
 import { useAuth } from '@/lib/auth.jsx';
+import { paths } from '@/platform/paths.js';
 import CodeInput from '@/components/online/CodeInput.jsx';
+import GameIcon from '@/components/online/GameIcon.jsx';
+import VisibilityBadge from '@/components/online/VisibilityBadge.jsx';
 import { Loading } from '@/components/online/StatusPanel.jsx';
-import { isRoomCode, normalizeRoomCode, roomProblem } from '@/components/online/codes.js';
+import { isRoomCode, normalizeRoomCode, playerCountOf, roomProblem } from '@/components/online/codes.js';
+import { defaultGame, gameName, gameOf, inviteGames } from '@/components/online/games.js';
+import { roomGameId, roomVisibility } from '@/components/online/gameRoute.js';
 import '@/styles/online.css';
+
+const JOIN_DELAY = 700; // ms: long enough to read who and what you are joining
+
+/** Who and what a code is: game icon + name, host, players/max, public/private. */
+function RoomPreview({ info }) {
+  const gameId = roomGameId(info);
+  const game = gameOf(gameId);
+  const name = gameName(gameId, game);
+  const count = playerCountOf(info);
+  const max = Number.isFinite(info.maxPlayers) && info.maxPlayers > 0 ? info.maxPlayers : null;
+  return (
+    <div className="ho-roompreview" aria-label="Room found">
+      <GameIcon game={game} name={name} size={52} />
+      <div className="ho-roompreview__main">
+        <span className="ho-roompreview__game">{name}</span>
+        <span className="ho-roompreview__sub">
+          {info.hostName ? `Hosted by ${info.hostName}` : 'Open room'} · {max ? `${count}/${max}` : count} {count === 1 && !max ? 'player' : 'players'}
+        </span>
+        {info.visibility && (
+          <span className="ho-roompreview__badge">
+            <VisibilityBadge visibility={roomVisibility(info)} />
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
 
 /**
  * /join and /join/:code. Needs a session (guest or Google): signed-out visitors go to /login and come back.
- * The code is checked against GET /api/rooms/:code before we navigate to the lobby.
+ * The code is checked against GET /api/rooms/:code (game name, host, players/max are shown), then we open the lobby.
  */
 export default function JoinRoom() {
   const { code: paramCode } = useParams();
@@ -21,14 +53,18 @@ export default function JoinRoom() {
   const [code, setCode] = useState(normalizeRoomCode(paramCode || ''));
   const [check, setCheck] = useState({ state: 'idle', message: '', info: null }); // idle | checking | error | offline | joining
   const seq = useRef(0);
+  const joinTimer = useRef(null);
   const myId = user ? user.id : null;
+
+  useEffect(() => () => clearTimeout(joinTimer.current), []);
 
   const verify = useCallback(
     async (c) => {
       const mine = ++seq.current;
+      clearTimeout(joinTimer.current);
       setCheck({ state: 'checking', message: '', info: null });
       try {
-        const info = await api.get(`/api/rooms/${encodeURIComponent(c)}`);
+        const info = await getRoom(c);
         if (mine !== seq.current) return;
         const problem = roomProblem(info, myId);
         if (problem) {
@@ -36,7 +72,9 @@ export default function JoinRoom() {
           return;
         }
         setCheck({ state: 'joining', message: '', info });
-        navigate(`/lobby/${c}`, { replace: fromLink });
+        joinTimer.current = setTimeout(() => {
+          if (mine === seq.current) navigate(paths.lobby(c), { replace: fromLink });
+        }, JOIN_DELAY);
       } catch (e) {
         if (mine !== seq.current) return;
         if (e && e.status === 404) setCheck({ state: 'error', message: 'No room with that code. Check it and try again.', info: null });
@@ -52,6 +90,7 @@ export default function JoinRoom() {
     if (loading || !user || hosting) return;
     if (!isRoomCode(code)) {
       seq.current += 1;
+      clearTimeout(joinTimer.current);
       setCheck({ state: 'idle', message: '', info: null });
       return;
     }
@@ -66,24 +105,24 @@ export default function JoinRoom() {
     );
   }
   if (!user) {
-    const target = hosting ? '/join?host=1' : isRoomCode(code) ? `/join/${code}` : '/join';
-    return <Navigate to={`/login?next=${encodeURIComponent(target)}`} replace />;
+    const target = hosting ? `${paths.join()}?host=1` : isRoomCode(code) ? paths.join(code) : paths.join();
+    return <Navigate to={paths.login(target)} replace />;
   }
 
-  if (hosting) return <HostRoom />;
+  if (hosting) return <HostRoom initialGame={params.get('game')} />;
 
   const state = check.state;
   const uiState = state === 'checking' || state === 'joining' ? 'checking' : state === 'error' ? 'error' : 'idle';
-  const hostName = check.info && check.info.hostName;
+  const info = check.info;
+  const hostName = info && info.hostName;
+  const joiningGame = info ? gameName(roomGameId(info)) : '';
 
   return (
     <div className="ho-page ho-join">
       <header className="ho-head">
         <div>
           <h1 className="ho-h1">Join a room</h1>
-          <p className="ho-muted" lang="te">
-            గదిలో చేరండి
-          </p>
+          <p className="ho-muted">Got a code from a friend? Pop it in and you are at their table.</p>
         </div>
       </header>
 
@@ -102,6 +141,8 @@ export default function JoinRoom() {
           describedBy="ho-join-status"
         />
 
+        {info && info.exists !== false && (state === 'joining' || state === 'error') && <RoomPreview info={info} />}
+
         <div id="ho-join-status" className="ho-join__status" role="status" aria-live="polite">
           {state === 'idle' && code.length > 0 && <span className="ho-muted">{6 - code.length} more to go</span>}
           {state === 'checking' && (
@@ -111,7 +152,7 @@ export default function JoinRoom() {
           )}
           {state === 'joining' && (
             <span className="ho-good">
-              <span className="ho-spinner" aria-hidden="true" /> {hostName ? `Joining ${hostName}'s room...` : 'Joining...'}
+              <span className="ho-spinner" aria-hidden="true" /> {hostName ? `Joining ${hostName}'s ${joiningGame} room...` : `Joining the ${joiningGame} room...`}
             </span>
           )}
           {state === 'error' && <span className="ho-bad">{check.message}</span>}
@@ -127,9 +168,9 @@ export default function JoinRoom() {
 
         {(state === 'error' || state === 'offline') && (
           <div className="ho-status__actions">
-            {state === 'error' && check.info && check.info.exists !== false && (
+            {state === 'error' && info && info.exists !== false && (
               // The lookup does not say who is in the room: players already seated can always get back in.
-              <button type="button" className="ho-btn ho-btn--primary" onClick={() => navigate(`/lobby/${code}`)}>
+              <button type="button" className="ho-btn ho-btn--primary" onClick={() => navigate(paths.lobby(code))}>
                 I was in this game: rejoin
               </button>
             )}
@@ -141,32 +182,93 @@ export default function JoinRoom() {
       </section>
 
       <p className="ho-muted ho-join__alt">
-        Want your own table? <Link to="/join?host=1">Create a private room</Link>.
+        Want your own table? <Link to={`${paths.join()}?host=1`}>Create a private room</Link>.
       </p>
     </div>
   );
 }
 
-function HostRoom() {
+/** `/join?host=1[&game=<id>]`: choose a game and open a private room for it (the game pages also do this themselves). */
+function HostRoom({ initialGame }) {
   const navigate = useNavigate();
+  const games = inviteGames();
+  const fallback = (initialGame && gameOf(initialGame)) || defaultGame();
+  const [gameId, setGameId] = useState(fallback ? fallback.id : games[0] ? games[0].id : '');
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState('');
   const pending = useRef(false);
+
   const create = async () => {
-    if (pending.current) return;
+    if (pending.current || !gameId) return;
     pending.current = true;
     setCreating(true);
     setError('');
     try {
-      const room = await api.post('/api/rooms', {});
+      const room = await createRoom({ gameId, visibility: 'private' });
       if (!room?.code) throw new Error('Your table could not be created. Try again.');
-      navigate(`/lobby/${room.code}`, { replace: true });
+      navigate(paths.lobby(room.code), { replace: true });
     } catch (err) {
       setError(errorMessage(err, 'Could not reach the server. Please try again.'));
       pending.current = false;
       setCreating(false);
     }
   };
-  return <div className="ho-page ho-join"><header className="ho-head"><div><span className="ho-eyebrow">Your gang. Your game.</span><h1 className="ho-h1">Set the adda, miya.</h1><p className="ho-muted">A private table for a little friendly rivalry.</p></div></header>
-    <section className="ho-card ho-host" aria-labelledby="host-heading"><span className="ho-host__art" aria-hidden="true">☕</span><h2 id="host-heading" className="ho-h2">Pull up a chair</h2><p className="ho-muted">Create your room, share the invite, and start when everyone is ready. You can add bots and adjust the game in the lobby.</p><ol className="ho-host__steps"><li>Create a private room</li><li>Share your six-character code</li><li>Roll, trade & chat together</li></ol><button type="button" className="ho-btn ho-btn--primary" disabled={creating} aria-busy={creating} onClick={create}>{creating ? 'Setting your table…' : error ? 'Try creating again' : 'Create private room'}</button>{error && <p className="ho-bad" role="alert">{error}</p>}<Link className="ho-linkbtn" to="/join">Have a code? Join a room</Link></section><Link className="ho-muted" to="/">Back to the lounge</Link></div>;
+
+  return (
+    <div className="ho-page ho-join">
+      <header className="ho-head">
+        <div>
+          <span className="ho-eyebrow">Your friends. Your game.</span>
+          <h1 className="ho-h1">Host a table</h1>
+          <p className="ho-muted">A private room for you and your friends.</p>
+        </div>
+      </header>
+      <section className="ho-card ho-host" aria-labelledby="host-heading">
+        <h2 id="host-heading" className="ho-h2">
+          Pick a game
+        </h2>
+        {games.length === 0 ? (
+          <p className="ho-empty">No games are open for friends yet. Check back soon.</p>
+        ) : (
+          <div role="radiogroup" aria-label="Game" className="ho-gamelist">
+            {games.map((g) => (
+              <button
+                key={g.id}
+                type="button"
+                role="radio"
+                aria-checked={g.id === gameId}
+                className={`ho-gamepick${g.id === gameId ? ' is-on' : ''}`}
+                onClick={() => setGameId(g.id)}
+              >
+                <GameIcon game={g} size={48} />
+                <span className="ho-gamepick__main">
+                  <span className="ho-gamepick__name">{g.name}</span>
+                  <span className="ho-gamepick__sub">
+                    {g.players ? `${g.players.min}-${g.players.max} players` : g.tagline}
+                    {g.duration ? ` · ${g.duration}` : ''}
+                  </span>
+                </span>
+              </button>
+            ))}
+          </div>
+        )}
+        <ol className="ho-host__steps">
+          <li>Create a private room</li>
+          <li>Share your six-character code</li>
+          <li>Start when everyone is ready</li>
+        </ol>
+        <button type="button" className="ho-btn ho-btn--primary" disabled={creating || !gameId} aria-busy={creating} onClick={create}>
+          {creating ? 'Setting up your table…' : error ? 'Try creating again' : 'Create private room'}
+        </button>
+        {error && (
+          <p className="ho-bad" role="alert">
+            {error}
+          </p>
+        )}
+        <Link className="ho-linkbtn" to={paths.join()}>
+          Have a code? Join a room
+        </Link>
+      </section>
+    </div>
+  );
 }

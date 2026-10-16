@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
+import { Link, Navigate, useSearchParams } from 'react-router-dom';
 import { Avatar } from '@/components/art/index.js';
-import { api, errorMessage } from '@/lib/api.js';
+import { api, errorMessage, sendInvite } from '@/lib/api.js';
 import { useAuth, useUserEvents } from '@/lib/auth.jsx';
-import { shareOrCopy, useCopied } from '@/components/online/clipboard.js';
-import { isFriendCode, isRoomCode, normalizeFriendCode, normalizeRoomCode } from '@/components/online/codes.js';
+import { paths } from '@/platform/paths.js';
+import { canShare, shareOrCopy, useCopied } from '@/components/online/clipboard.js';
+import { friendInviteMessage, friendLinkUrl, isFriendCode, isRoomCode, normalizeFriendCode, normalizeRoomCode, parseFriendLink } from '@/components/online/codes.js';
 import ConfirmDialog from '@/components/online/ConfirmDialog.jsx';
+import InviteToGameSheet from '@/components/online/InviteToGameSheet.jsx';
 import StatusPanel, { Loading } from '@/components/online/StatusPanel.jsx';
 import { useToasts } from '@/components/online/Toasts.jsx';
 import {
@@ -39,6 +41,7 @@ function SkeletonRows({ n = 3 }) {
   );
 }
 
+/** /friends: the People tab. */
 export default function Friends() {
   const { user, loading } = useAuth();
   if (loading) {
@@ -49,7 +52,7 @@ export default function Friends() {
     );
   }
   if (!user || user.isGuest) {
-    const here = '/friends' + (typeof window !== 'undefined' ? window.location.search : '');
+    const here = paths.friends() + (typeof window !== 'undefined' ? window.location.search : '');
     return (
       <div className="ho-page">
         <StatusPanel
@@ -57,12 +60,12 @@ export default function Friends() {
           title={user ? 'Friends are for Google accounts' : 'Sign in to add friends'}
           body={
             user
-              ? 'Guests can host and join rooms with a code or link. Sign in with Google to add friends, see who is online and invite them in one tap.'
-              : 'Add friends with a friend code, see who is online and invite them to your room in one tap.'
+              ? 'Guests can host and join rooms with a code or link. Sign in with Google to add friends, see who is online and invite them to a game in one tap.'
+              : 'Add friends with a friend link, see who is online and invite them to a game in one tap.'
           }
           actions={[
-            { label: user ? 'Sign in with Google' : 'Sign in', to: `/login?next=${encodeURIComponent(here)}`, primary: true },
-            { label: 'Join a room with a code', to: '/join' },
+            { label: user ? 'Sign in with Google' : 'Sign in', to: paths.login(here), primary: true },
+            { label: 'Join a room with a code', to: paths.join() },
           ]}
         />
       </div>
@@ -79,11 +82,13 @@ function FriendsInner({ user }) {
   const [loadError, setLoadError] = useState(null);
   const [busy, setBusy] = useState({});
   const [confirm, setConfirm] = useState(null);
+  const [inviteSheet, setInviteSheet] = useState(null); // friend picked for "Invite to game"
   const [invited, setInvited] = useState({});
-  const [code, setCode] = useState(normalizeFriendCode(params.get('add') || ''));
+  const [code, setCode] = useState('');
   const [adding, setAdding] = useState(false);
   const [addError, setAddError] = useState('');
-  const [copied, copy] = useCopied();
+  const [codeCopied, copyCode] = useCopied();
+  const [linkCopied, copyLink] = useCopied();
   const { push, node } = useToasts();
   const dataRef = useRef(null);
   const addRef = useRef(null);
@@ -173,10 +178,11 @@ function FriendsInner({ user }) {
       failure: 'Could not remove this friend',
     });
 
-  const invite = async (u) => {
+  /** Invite to the room we came here from (`/friends?room=CODE`). */
+  const inviteToRoom = async (u) => {
     setInvited((s) => ({ ...s, [u.id]: 'sending' }));
     try {
-      await api.post('/api/invites', { code: room, userId: u.id });
+      await sendInvite(room, u.id);
       setInvited((s) => ({ ...s, [u.id]: 'sent' }));
       push(`Invite sent to ${u.name}`, 'good');
     } catch (e) {
@@ -188,9 +194,9 @@ function FriendsInner({ user }) {
   const submitAdd = async (e) => {
     e.preventDefault();
     if (adding) return;
-    const c = normalizeFriendCode(code);
+    const c = parseFriendLink(code);
     if (!isFriendCode(c)) {
-      setAddError('Friend codes look like HYD-7K2Q (4 letters or numbers after HYD-).');
+      setAddError('Friend codes look like HYD-7K2Q (4 letters or numbers after HYD-). You can also paste a friend link.');
       addRef.current?.focus();
       return;
     }
@@ -214,28 +220,26 @@ function FriendsInner({ user }) {
     }
   };
 
+  const link = user.friendCode ? friendLinkUrl(user.friendCode) : '';
   const share = async () => {
-    const origin = typeof location !== 'undefined' ? location.origin : '';
-    const res = await shareOrCopy({
-      title: 'Hyderabad Tycoon',
-      text: `Add me on Hyderabad Tycoon! Friend code: ${user.friendCode}`,
-      url: `${origin}/friends?add=${user.friendCode}`,
-    });
-    if (res === 'copied') push('Invite copied to clipboard', 'good');
-    else if (res === 'failed') push('Could not share. Copy your code instead.', 'bad');
+    const res = await shareOrCopy(friendInviteMessage(user.friendCode));
+    if (res === 'copied') push('Friend link copied', 'good');
+    else if (res === 'failed') push('Could not share. Copy your link instead.', 'bad');
   };
 
   const d = data || emptyFriends();
   const online = countOnline(d);
+
+  // an old share link (`/friends?add=HYD-7K2Q`) opens the "Add <name>?" screen instead
+  const legacyAdd = parseFriendLink(params.get('add') || '');
+  if (legacyAdd) return <Navigate to={paths.friendLink(legacyAdd)} replace />;
 
   return (
     <div className="ho-page ho-friends">
       <header className="ho-head">
         <div>
           <h1 className="ho-h1">Friends</h1>
-          <p className="ho-muted" lang="te">
-            స్నేహితులు
-          </p>
+          <p className="ho-muted">Add people once, then invite them to any game.</p>
         </div>
         {data && d.friends.length > 0 && <span className="ho-pill">{online} online</span>}
       </header>
@@ -245,7 +249,7 @@ function FriendsInner({ user }) {
           <span>
             Inviting to room <strong>{room}</strong>. Tap Invite next to an online friend.
           </span>
-          <Link to={`/lobby/${room}`} className="ho-btn ho-btn--ghost ho-btn--sm">
+          <Link to={paths.lobby(room)} className="ho-btn ho-btn--ghost ho-btn--sm">
             Back to lobby
           </Link>
         </div>
@@ -253,34 +257,47 @@ function FriendsInner({ user }) {
 
       <div className="ho-grid">
         <div className="ho-col">
-          <section className="ho-card ho-mycode" aria-label="Your friend code">
+          <section className="ho-card ho-mycode" aria-label="Your friend link">
             <span className="ho-eyebrow">Your friend code</span>
             <div className="ho-bigcode ho-bigcode--friend" aria-label={`Your friend code ${user.friendCode}`}>
               {user.friendCode || '...'}
+            </div>
+            <div className="ho-linkrow">
+              <input className="ho-input ho-linkrow__input" readOnly value={link} aria-label="Your friend link" onFocus={(e) => e.target.select()} placeholder="Your friend link" />
+              <button
+                type="button"
+                className="ho-btn ho-btn--ghost"
+                onClick={async () => {
+                  if (!(await copyLink(link))) push('Could not copy the link.', 'bad');
+                }}
+                disabled={!link}
+              >
+                {linkCopied ? 'Copied!' : 'Copy link'}
+              </button>
             </div>
             <div className="ho-share__actions">
               <button
                 type="button"
                 className="ho-btn ho-btn--ghost"
                 onClick={async () => {
-                  if (!(await copy(user.friendCode))) push('Could not copy. Select the code and copy it manually.', 'bad');
+                  if (!(await copyCode(user.friendCode))) push('Could not copy. Select the code and copy it manually.', 'bad');
                 }}
                 disabled={!user.friendCode}
               >
-                {copied ? 'Copied!' : 'Copy code'}
+                {codeCopied ? 'Copied!' : 'Copy code'}
               </button>
               <button type="button" className="ho-btn ho-btn--primary" onClick={share} disabled={!user.friendCode}>
-                Share
+                {canShare() ? 'Share link' : 'Copy invite'}
               </button>
             </div>
-            <p className="ho-help">Friends type this code below to send you a request.</p>
+            <p className="ho-help">Anyone who opens your link can add you in one tap. No account needed to look.</p>
           </section>
 
-          <section className="ho-card" aria-label="Add a friend">
-            <h2 className="ho-h2">Add a friend</h2>
+          <section className="ho-card" aria-label="Add a friend by code">
+            <h2 className="ho-h2">Add by code</h2>
             <form onSubmit={submitAdd} noValidate className="ho-addform">
               <label className="ho-field__label" htmlFor="ho-add-code">
-                Friend code
+                Friend code or link
               </label>
               <div className="ho-addform__row">
                 <input
@@ -289,7 +306,9 @@ function FriendsInner({ user }) {
                   className="ho-input ho-input--code"
                   value={code}
                   onChange={(e) => {
-                    setCode(normalizeFriendCode(e.target.value));
+                    const v = e.target.value;
+                    // a pasted link/code becomes the clean code; plain typing is normalised as you go
+                    setCode(parseFriendLink(v) || (v.includes('/') ? v : normalizeFriendCode(v)));
                     if (addError) setAddError('');
                   }}
                   placeholder="HYD-7K2Q"
@@ -302,7 +321,7 @@ function FriendsInner({ user }) {
                   aria-describedby={addError ? 'ho-add-error' : undefined}
                 />
                 <button type="submit" className="ho-btn ho-btn--primary" disabled={adding || !code}>
-                  {adding ? 'Sending...' : 'Send request'}
+                  {adding ? 'Sending...' : 'Add'}
                 </button>
               </div>
               {addError && (
@@ -369,7 +388,7 @@ function FriendsInner({ user }) {
                   <SkeletonRows />
                 ) : d.friends.length === 0 ? (
                   <p className="ho-empty">
-                    No friends yet. Share your code above, or enter a friend&rsquo;s code to send a request. Friends show up here with a green dot when they are online.
+                    No friends yet. Share your friend link above, or add a friend by code. Friends show up here with a green dot when they are online, and you can invite them to any game.
                   </p>
                 ) : (
                   <ul className="ho-list">
@@ -384,19 +403,31 @@ function FriendsInner({ user }) {
                           <span className="ho-row__main">
                             <span className="ho-row__name">{f.name}</span>
                             <span className="ho-row__sub">
-                              {f.online ? 'Online' : 'Offline'} · Level {f.level}
+                              {f.online ? 'Online' : 'Offline'} · Lv {f.level}
                             </span>
                           </span>
                           <span className="ho-row__actions">
-                            {room && (
+                            {room ? (
                               <button
                                 type="button"
                                 className={`ho-btn ho-btn--sm ${st === 'sent' ? 'ho-btn--ghost' : 'ho-btn--primary'}`}
-                                onClick={() => invite(f)}
+                                onClick={() => inviteToRoom(f)}
                                 disabled={!f.online || st === 'sending' || st === 'sent'}
                                 aria-label={`Invite ${f.name} to room ${room}`}
                               >
                                 {st === 'sending' ? 'Sending...' : st === 'sent' ? 'Invited' : 'Invite'}
+                              </button>
+                            ) : (
+                              <button
+                                type="button"
+                                className="ho-btn ho-btn--primary ho-btn--sm"
+                                onClick={() => setInviteSheet(f)}
+                                disabled={!f.online}
+                                title={f.online ? undefined : `${f.name} is offline`}
+                                aria-label={`Invite ${f.name} to a game`}
+                              >
+                                <span className="ho-narrow">Invite</span>
+                                <span className="ho-wide">Invite to game</span>
                               </button>
                             )}
                             <button type="button" className="ho-iconbtn" onClick={() => setConfirm(f)} disabled={!!busy[f.id]} aria-label={`Remove ${f.name} from friends`}>
@@ -442,6 +473,8 @@ function FriendsInner({ user }) {
           )}
         </div>
       </div>
+
+      {inviteSheet && <InviteToGameSheet friend={inviteSheet} onClose={() => setInviteSheet(null)} />}
 
       <ConfirmDialog
         open={!!confirm}

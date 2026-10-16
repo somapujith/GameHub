@@ -7,8 +7,16 @@ import { isUuid } from '../validate.js';
 import { limit } from '../ratelimit.js';
 import { readJson } from '../http.js';
 import { pushToUser, roomCall } from '../hub.js';
+import { getAdapter, DEFAULT_GAME_ID } from '../games/index.js';
 
 const invites = new Hono();
+
+/** The message pushed to the invited friend: who, which room, and which game it is for. */
+export function inviteMessage(from, code, gameId) {
+  const id = gameId || DEFAULT_GAME_ID;
+  const adapter = getAdapter(id);
+  return { t: 'invite', from, code, gameId: id, gameName: adapter ? adapter.name : id };
+}
 
 // POST /api/invites { code, userId } -> pushes an `invite` to that friend's UserHub.
 invites.post('/', requireMember, limit('invite', 30, 60), async (c) => {
@@ -34,7 +42,7 @@ invites.post('/', requireMember, limit('invite', 30, 60), async (c) => {
   if (!data.isMember) throw new HttpError(403, 'Join the room before inviting friends.');
   if (data.status !== 'lobby') throw new HttpError(409, 'That game has already started.');
 
-  const delivered = await pushToUser(c.env, body.userId, { t: 'invite', from: identity(me), code });
+  const delivered = await pushToUser(c.env, body.userId, inviteMessage(identity(me), code, data.gameId));
   return c.json({ ok: true, delivered: delivered > 0 });
 });
 

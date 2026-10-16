@@ -33,6 +33,32 @@ friends.get('/', async (c) => {
   });
 });
 
+/** How `me` relates to the other user, from their friendship row (or undefined). */
+export function friendRelation(row, meId) {
+  if (!row) return 'none';
+  if (row.status === 'accepted') return 'friends';
+  return row.user_id === meId ? 'outgoing' : 'incoming';
+}
+
+// GET /api/friends/by-code/:friendCode -> { user:{ id, name, avatar, level, friendCode, relation } }
+// For the friend-link screen (/f/HYD-XXXX). relation: 'none' | 'friends' | 'outgoing' | 'incoming'.
+friends.get('/by-code/:friendCode', limit('friend-lookup', 30, 60), async (c) => {
+  const me = c.get('user');
+  const code = normalizeFriendCode(c.req.param('friendCode'));
+  if (!code) throw new HttpError(400, 'That friend code does not look right (e.g. HYD-7K2Q).');
+  const target = await getUserByFriendCode(c.env, code);
+  if (!target || target.is_guest) throw new HttpError(404, 'No player found with that friend code.');
+  if (target.id === me.id) throw new HttpError(400, 'That is your own friend code.');
+  const rows = await query(
+    c.env,
+    `SELECT user_id, status FROM friendships
+      WHERE (user_id = $1 AND friend_id = $2) OR (user_id = $2 AND friend_id = $1)`,
+    [me.id, target.id],
+  );
+  const { id, name, avatar, level, friendCode } = rowToFriend(target);
+  return c.json({ user: { id, name, avatar, level, friendCode, relation: friendRelation(rows[0], me.id) } });
+});
+
 // POST /api/friends/request { friendCode } - idempotent; a mutual request auto-accepts.
 friends.post('/request', limit('friend-request', 20, 60), async (c) => {
   const me = c.get('user');
