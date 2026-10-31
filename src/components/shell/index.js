@@ -8,5 +8,4 @@ export { default as Modal } from './Modal.jsx';
 export { ToastProvider, useToast } from './Toast.jsx';
 export { Icon, CoinIcon } from './icons.jsx';
 export { AvatarRing, Coins, XpBar, Toggle, Segmented, Skeleton, EmptyState, RankMedal, fmtNum, radioKeyNav } from './ui.jsx';
-export { settingsSummary } from './gameSettings.js';
-export { useReducedMotion, useAccount, useSfxClick, useGlobalClickSfx } from './hooks.js';
+export { useReducedMotion, useAccount, useProgress, useSfxClick, useGlobalClickSfx } from './hooks.js';

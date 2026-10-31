@@ -72,7 +72,7 @@ const counterRace = {
       target: settings.target,
       seed,
       winner: null,
-      players: players.map((p, i) => ({ id: p.id, name: p.name, isBot: !!p.isBot, count: 0, secret: 100 + i })),
+      players: players.map((p, i) => ({ id: p.id, name: p.name, count: 0, secret: 100 + i })),
     };
   },
   applyAction(state, action) {
@@ -94,16 +94,12 @@ const counterRace = {
     } else s.turn = (s.turn + 1) % s.players.length;
     return { state: s, events };
   },
-  nextBotMove(state) {
-    const p = state.players[state.turn];
-    return state.phase === 'play' && p.isBot ? { type: 'STEP', playerId: p.id } : null;
-  },
   turnPlayerId: (state) => (state.phase === 'play' ? state.players[state.turn].id : null),
-  // a 10 s shot clock for a human on turn (shorter than the room's 45 s idle timer)
+  // a 10 s shot clock on the opening move (shorter than the room's 45 s idle timer)
   deadlines(state) {
-    if (state.phase !== 'play') return [];
+    if (state.phase !== 'play' || state.moves !== 0) return [];
     const p = state.players[state.turn];
-    return p.isBot ? [] : [{ key: `clock:${state.moves}`, afterMs: 10_000, playerId: p.id, action: { type: 'PASS', playerId: p.id } }];
+    return [{ key: `clock:${state.moves}`, afterMs: 10_000, playerId: p.id, action: { type: 'PASS', playerId: p.id } }];
   },
   idleAction: (state, id) => (state.phase === 'play' && state.players[state.turn].id === id ? { type: 'STEP', playerId: id } : null),
   isOver: (state) => state.phase === 'over',
@@ -118,11 +114,6 @@ const counterRace = {
   },
   // every viewer gets a fresh object in which the other players' secrets are hidden
   redact: (state, viewerId) => ({ ...state, players: state.players.map((p) => (p.id === viewerId ? p : { ...p, secret: null })) }),
-  rivals: (count, taken = []) => {
-    const out = [];
-    for (let i = 1; out.length < count; i += 1) if (!taken.includes(`Robo ${i}`)) out.push({ name: `Robo ${i}`, avatar: i % 12 });
-    return out;
-  },
 };
 
 // ---- fakes (same shape as room.test.js) -------------------------------------------------------------
@@ -274,9 +265,10 @@ const started = async (settings = { target: 3 }) => {
   const h = new Harness();
   expect((await h.init({ gameId: 'counter-race', settings })).status).toBe(201);
   const host = await h.connect(user(1));
-  await h.say(host, { t: 'addBot' });
+  const guest = await h.connect(user(2));
   await h.say(host, { t: 'start' });
   h.host = host;
+  h.guest = guest;
   return h;
 };
 
@@ -306,7 +298,7 @@ describe('a second game through the same room', () => {
     expect(tycoon.r.gameId).toBe('hyderabad-tycoon');
   });
 
-  it('lobby: the room payload carries gameId + visibility; settings, seats and bots follow the adapter', async () => {
+  it('lobby: the room payload carries gameId + visibility; settings and seats follow the adapter', async () => {
     const h = new Harness();
     await h.init({ gameId: 'counter-race', maxPlayers: 3 });
     const host = await h.connect(user(1));
@@ -328,11 +320,45 @@ describe('a second game through the same room', () => {
     expect(host.last('error').message).toMatch(/object/);
 
     await h.say(host, { t: 'kick', id: U(2) });
+    expect(host.last('room').room.players.map((p) => p.id)).toEqual([U(1)]);
+  });
+
+  it('there are no bots: addBot / removeBot are unknown messages and change nothing', async () => {
+    const h = new Harness();
+    await h.init({ gameId: 'counter-race', maxPlayers: 3 });
+    const host = await h.connect(user(1));
+    const guest = await h.connect(user(2));
+    const seats = () => h.r.players.map((p) => p.id);
+    const before = seats();
+    const seq = h.r.seq;
+    for (const msg of [{ t: 'addBot' }, { t: 'removeBot', id: U(2) }, { t: 'removeBot', id: 'bot_x' }]) {
+      const errors = host.of('error').length;
+      await h.say(host, msg);
+      expect(host.last('error').message, msg.t).toBe('Unknown message type.');
+      expect(host.of('error')).toHaveLength(errors + 1);
+      expect(seats()).toEqual(before);
+    }
+    await h.say(guest, { t: 'addBot' }); // a non-host gets the same refusal
+    expect(guest.last('error').message).toBe('Unknown message type.');
+    expect(host.last('room').room.players.every((p) => !('isBot' in p))).toBe(true);
+    expect(h.r.seq).toBe(seq);
+    await h.say(host, { t: 'kick', id: U(2) });
+    expect(seats()).toEqual([U(1)]);
+  });
+
+  it('a room starts only with at least two real players', async () => {
+    const h = new Harness();
+    await h.init({ gameId: 'counter-race' });
+    const host = await h.connect(user(1));
     await h.say(host, { t: 'addBot' });
-    const bot = host.last('room').room.players.find((p) => p.isBot);
-    expect(bot.name).toBe('Robo 1'); // the adapter's roster, not Tycoon's
-    await h.say(host, { t: 'addBot' });
-    expect(host.last('error').message).toMatch(/full/);
+    await h.say(host, { t: 'start' });
+    expect(host.last('error').message).toMatch(/at least 2 players/);
+    expect(h.r.status).toBe('lobby');
+    expect(h.r.players).toHaveLength(1);
+    await h.connect(user(2));
+    await h.say(host, { t: 'start' });
+    expect(h.r.status).toBe('playing');
+    expect(h.r.state.players.map((p) => p.id).sort()).toEqual([U(1), U(2)]);
   });
 
   it('visibility: host only, lobby only, validated, and broadcast to everyone', async () => {
@@ -412,14 +438,11 @@ describe('a second game through the same room', () => {
     expect(other.last('chat').text).toBe('gl hf');
   });
 
-  it('timers: the adapter deadline beats the idle timer, bots follow nextBotMove, the game ends through isOver/result', async () => {
+  it('timers: the adapter deadline beats the idle timer, idle players are auto-played, the game ends through isOver/result', async () => {
     const h = await started({ target: 3 });
-    // the human is on turn (or the bot moves first)
-    for (let i = 0; i < 20 && h.r.state.players[h.r.state.turn].isBot; i += 1) await h.tick();
     const mover = h.r.state.players[h.r.state.turn];
-    expect(mover.id).toBe(U(1));
     const plan = h.room.plan();
-    expect(plan.action).toEqual({ type: 'PASS', playerId: U(1) }); // the 10 s shot clock, not the 45 s idle STEP
+    expect(plan.action).toEqual({ type: 'PASS', playerId: mover.id }); // the 10 s shot clock, not the 45 s idle STEP
     expect(plan.timeout).toBe(false);
     expect(plan.at).toBe(h.r.lastApplyAt + h.r.animMs + 10_000);
     expect(plan.at).toBeLessThan(h.r.lastApplyAt + TURN_MS);
@@ -429,11 +452,11 @@ describe('a second game through the same room', () => {
     vi.setSystemTime(plan.at - 1000);
     await h.room.alarm();
     expect(h.r.seq).toBe(seq);
-    // at the deadline the PASS is applied; the human is NOT flagged idle (deadlines do not count as idling)
+    // at the deadline the PASS is applied; the player is NOT flagged idle (deadlines do not count as idling)
     await h.tick();
-    expect(h.host.last('state').events[0]).toEqual({ type: 'pass', player: U(1) });
-    expect(h.r.afk[U(1)]).toBeUndefined();
-    // let it play to the end: bots step on their own, the human is eventually flagged idle and auto-stepped
+    expect(h.host.last('state').events[0]).toEqual({ type: 'pass', player: mover.id });
+    expect(h.r.afk[mover.id]).toBeUndefined();
+    // let it play to the end: each player in turn is eventually flagged idle and auto-stepped
     let steps = 0;
     while (h.r.status === 'playing' && steps < 200) {
       await h.tick();
@@ -447,9 +470,9 @@ describe('a second game through the same room', () => {
     const rec = persisted[0];
     expect(rec).toMatchObject({ gameId: 'counter-race', roomCode: 'RACE22', playerCount: 2, winReason: 'target', goal: null, maxRounds: null, diceMode: null });
     expect(rec.players.map((p) => p.rank).sort()).toEqual([1, 2]);
-    expect(rec.players.find((p) => p.is_bot).user_id).toBeNull();
-    expect(rec.users).toHaveLength(1);
-    expect(rec.users[0]).toMatchObject({ user_id: U(1), lg: 0, lw: 0, lworth: 0, lrent: 0 }); // no legacy Tycoon columns
+    expect(rec.players.every((p) => p.is_bot === false && [U(1), U(2)].includes(p.user_id))).toBe(true);
+    expect(rec.users).toHaveLength(2);
+    for (const u of rec.users) expect(u).toMatchObject({ lg: 0, lw: 0, lworth: 0, lrent: 0 }); // no legacy Tycoon columns
     expect(rec.seats).toHaveLength(2);
   });
 
@@ -497,9 +520,9 @@ describe('listing rows (the rooms table)', () => {
     await h.flush();
     expect(listing.rows).toHaveLength(1);
 
-    await h.say(host, { t: 'addBot' });
+    await h.connect(user(2));
     await h.flush();
-    expect(listing.rows.at(-1)).toMatchObject({ playerCount: 2, memberIds: [U(1)] });
+    expect(listing.rows.at(-1)).toMatchObject({ playerCount: 2, memberIds: [U(1), U(2)] });
     await h.say(host, { t: 'settings', settings: { target: 6 } });
     await h.flush();
     expect(listing.rows.at(-1).settings).toEqual({ target: 6 });
@@ -545,7 +568,7 @@ describe('listing rows (the rooms table)', () => {
     const h = new Harness(env);
     expect((await h.init({ gameId: 'counter-race' })).status).toBe(201);
     const host = await h.connect(user(1));
-    await h.say(host, { t: 'addBot' });
+    await h.connect(user(2));
     await h.flush();
     expect(host.last('room').room.players).toHaveLength(2); // the room carried on
     expect(listing.rows).toHaveLength(0);
@@ -590,7 +613,7 @@ describe('rooms stored by the previous version keep working', () => {
     hostId: U(1),
     maxPlayers: 4,
     settings: { goal: 70000, startCash: 15000, maxRounds: 50, dice: 'lucky', auctionOnDecline: true },
-    players: [{ id: U(1), name: 'P1', avatar: 1, ready: true, isBot: false, guest: false }],
+    players: [{ id: U(1), name: 'P1', avatar: 1, ready: true, guest: false }],
     state: null,
     seq: 0,
     matchId: null,

@@ -1,19 +1,20 @@
 // Server adapter for Hyderabad Tycoon (docs/MARKETPLACE.md section 5). Everything the generic
 // GameRoom / persistence code needs to know about this game lives here: it wraps the rules engine
-// (shared/index.js) and the Tycoon-only helpers worker/{mask,rivals,settings,validate}.js.
+// (shared/index.js) and the Tycoon-only helpers worker/{mask,settings,validate}.js.
 import * as engine from '../../shared/index.js';
-import { MAX_LEVEL } from '../../shared/board.js';
+import { MAX_LEVEL, BOARD_SIZE } from '../../shared/board.js';
 import { formatINR } from '../../shared/format.js';
 import { maskStateFor } from '../mask.js';
-import { pickRival } from '../rivals.js';
 import { sanitizeSettings, normalizeSettings, ROOM_DEFAULTS, MAX_PLAYERS_MIN, MAX_PLAYERS_MAX } from '../settings.js';
 import { sanitizeAction, EMOTES } from '../validate.js';
 
 export const ID = 'hyderabad-tycoon';
 export const TRADE_MS = 30_000; // an unanswered trade offer is auto-rejected after this
+const SNATCH_FALLBACK_MS = 3000; // used only if a state somehow lacks `pending.ms`
+export const SNATCH_GRACE_MS = 400; // the server closes the window this long after the UI countdown ends (network latency)
 const TRADE_VOID_MS = 900; // an offer to a player who is out of the game is cancelled right away
 const MAX_ANIM_MS = 6000;
-const BOT_MOVE_MS = 900; // pause before a bot / idle move
+const AUTO_MOVE_MS = 900; // pause before an idle / disconnected player's move is played for them
 const BID_MOVE_MS = 400; // sealed bids are quick
 const START_ANIM_MS = 1500; // the client plays a short "game start" intro
 
@@ -34,7 +35,11 @@ export function estimateAnimMs(events) {
         ms += 1500;
         break;
       case 'auction_end':
+      case 'city_event':
         ms += 1500;
+        break;
+      case 'trap_sprung':
+        ms += 900;
         break;
       case 'win':
         ms += 2500;
@@ -51,10 +56,15 @@ export function estimateAnimMs(events) {
  * - pending trade: the player who must answer it (`trade.to`);
  * - debt phase: the debtor (even when it is not their turn);
  * - auction: everyone who has not bid yet;
+ * - snatch window: the eligible players who have not pressed yet (nobody is auto-played in it);
  * - otherwise the turn player.
  */
 export function pendingActors(state) {
   if (!state || state.phase === 'over') return [];
+  if (state.phase === 'snatch' && state.pending && state.pending.type === 'snatch') {
+    const claims = state.pending.claims || [];
+    return state.players.filter((p) => !p.bankrupt && state.pending.eligible.includes(p.id) && !claims.includes(p.id)).map((p) => p.id);
+  }
   if (state.trade) {
     const to = state.players.find((p) => p.id === state.trade.to);
     return to && !to.bankrupt ? [to.id] : [];
@@ -70,7 +80,7 @@ export function pendingActors(state) {
   return tp && !tp.bankrupt ? [tp.id] : [];
 }
 
-/** The move an automated player (bot, idle or disconnected human) should make right now. */
+/** The move an automated player (an idle or disconnected player, played on their behalf) should make right now. */
 export function autoMove(state, playerId, rnd = Math.random) {
   let action = engine.chooseBotAction(state, playerId, rnd);
   // Safety net for a phase the brain declines to act in: a debtor tries to pay (the engine
@@ -80,6 +90,9 @@ export function autoMove(state, playerId, rnd = Math.random) {
   }
   return action;
 }
+
+/** True when a stored game state was made on the current board (a 28-tile state has a shorter `owners`). */
+export const isCurrentBoard = (state) => Array.isArray(state?.owners) && state.owners.length === BOARD_SIZE;
 
 const hotelsBuilt = (p, meta) => {
   const n = Number(meta?.hotels?.[p.id] ?? p.stats?.hotelsBuilt ?? p.stats?.hotels ?? 0);
@@ -127,8 +140,6 @@ const adapter = {
         id: p.id,
         name: p.name,
         avatar: p.avatar,
-        isBot: !!p.isBot,
-        ...(p.bot ? { bot: p.bot } : {}),
       })),
       settings: normalizeSettings(settings), // goal, startCash, maxRounds (null = unlimited), dice, auctionOnDecline
       seed,
@@ -140,25 +151,9 @@ const adapter = {
 
   applyAction: (state, action) => engine.applyAction(state, action),
 
-  /** Which bot should move now (the engine looks at the debt / trade / auction / turn owner). */
-  nextBotMove(state, rnd = Math.random) {
-    const action = engine.nextBotMove(state, rnd);
-    if (action) return action;
-    // Safety nets (see autoMove): a bot debtor always has something to try; a bot that is asked
-    // to answer a trade never leaves it hanging.
-    if (state && state.phase === 'debt' && state.debt) {
-      const d = state.players.find((p) => p.id === state.debt.player);
-      if (d && d.isBot && !d.bankrupt) return { type: 'PAY_DEBT', playerId: d.id };
-    }
-    if (state && state.trade) {
-      const to = state.players.find((p) => p.id === state.trade.to);
-      if (to && to.isBot && !to.bankrupt) return { type: 'TRADE_REJECT', playerId: to.id };
-    }
-    return null;
-  },
-
   /** The player the idle timer waits for (the debtor during the debt phase). */
   turnPlayerId(state) {
+    if (state && state.phase === 'snatch' && state.pending && state.pending.type === 'snatch') return state.pending.buyer ?? null;
     return pendingActors(state)[0] ?? null;
   },
 
@@ -177,6 +172,17 @@ const adapter = {
 
   /** Timers besides the turn timer: an unanswered trade offer is auto-rejected after 30 s. */
   deadlines(state) {
+    // The Snatch window: the room itself closes it (SNATCH_CLOSE has no player and clients cannot send it).
+    // The key carries the tile and turn count, so two windows in a row are two timers.
+    if (state && state.phase === 'snatch' && state.pending && state.pending.type === 'snatch') {
+      const pend = state.pending;
+      return [{
+        key: `snatch:${state.turnCount ?? 0}:${pend.tile}`,
+        afterMs: (Number.isFinite(pend.ms) ? pend.ms : SNATCH_FALLBACK_MS) + SNATCH_GRACE_MS,
+        playerId: pend.buyer,
+        action: { type: 'SNATCH_CLOSE' },
+      }];
+    }
     const t = state && state.phase !== 'over' ? state.trade : null;
     if (!t) return [];
     const to = state.players.find((p) => p.id === t.to);
@@ -184,12 +190,12 @@ const adapter = {
       // The recipient is out of the game: the offerer takes the offer back.
       return [{ key: `trade:${t.id}:void`, afterMs: TRADE_VOID_MS, playerId: t.from, action: { type: 'TRADE_CANCEL', playerId: t.from } }];
     }
-    if (to.isBot) return []; // bots answer through nextBotMove
     return [{ key: `trade:${t.id}`, afterMs: TRADE_MS, playerId: to.id, action: { type: 'TRADE_REJECT', playerId: to.id } }];
   },
 
-  /** Auto-play for an AFK / disconnected human. Ignoring a trade offer means rejecting it. */
+  /** Auto-play for an AFK / disconnected player. Ignoring a trade offer means rejecting it. */
   idleAction(state, playerId) {
+    if (state && state.phase === 'snatch') return null; // auto-play never snatches and never acts during the window
     const t = state && state.trade;
     if (t) {
       if (t.to === playerId) return { type: 'TRADE_REJECT', playerId };
@@ -210,7 +216,7 @@ const adapter = {
   animationMs: estimateAnimMs,
 
   /** Pause before an automated move (bids are quicker). */
-  moveDelayMs: (action) => (action && action.type === 'BID' ? BID_MOVE_MS : BOT_MOVE_MS),
+  moveDelayMs: (action) => (action && action.type === 'BID' ? BID_MOVE_MS : AUTO_MOVE_MS),
 
   /** Rooms stored by the previous version kept hotels / the trade clock in their own fields. */
   upgradeRecord(r) {
@@ -221,6 +227,16 @@ const adapter = {
     delete r.hotels;
     delete r.tradeId;
     delete r.tradeAt;
+    // Room record v3 = the 40-square board. A game stored on the old 28-tile board cannot be resumed
+    // (its owners / levels / positions mean different tiles): drop it and call the room off, unrecorded.
+    if (r.state && !isCurrentBoard(r.state)) {
+      r.state = null;
+      if (r.status !== 'lobby') {
+        r.status = 'finished';
+        r.abandoned = true;
+        r.endedAt ||= Date.now();
+      }
+    }
   },
 
   /** Fold the events of an applied action into the per-match `meta` (hotels built per player). */
@@ -268,18 +284,6 @@ const adapter = {
 
   /** Sealed auctions: other players' bid amounts are hidden (the keys stay, so "has bid" is visible). */
   redact: (state, viewerId) => maskStateFor(state, viewerId),
-
-  /** `count` distinct bot rivals whose names are not in `taken`. */
-  rivals(count = 1, taken = []) {
-    const names = [...taken];
-    const out = [];
-    for (let i = 0; i < count; i += 1) {
-      const r = pickRival(names);
-      names.push(r.name);
-      out.push({ name: r.name, avatar: r.avatar, bot: { ...r.bot } });
-    }
-    return out;
-  },
 };
 
 export default adapter;

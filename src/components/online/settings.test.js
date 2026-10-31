@@ -6,14 +6,12 @@ import {
   formatValue,
   resolveSettings,
   schemaFields,
-  seatBounds,
-  seatsMessage,
   settingsChips,
   settingsKey,
   settingsMessage,
   stepValue,
   summarizeSettings,
-  visibilityMessage,
+  lobbyFields,
 } from './settings.js';
 
 // A schema shaped like a real game's (segmented with null, stepper with quick picks, toggle) but owned by the test.
@@ -48,6 +46,20 @@ const SCHEMA = [
   { key: 'seats', label: 'Seats', type: 'stepper', format: 'number', min: 1, max: 9, default: 4 },
 ];
 const DEFAULTS = { goal: 70000, maxRounds: 50, dice: 'lucky', auction: true, seats: 4 };
+
+describe('lobbyFields', () => {
+  it('shows every field unless the game lists the keys its lobby renders', () => {
+    expect(lobbyFields({ settings: SCHEMA }).map((f) => f.key)).toEqual(['goal', 'maxRounds', 'dice', 'auction', 'seats']);
+    expect(lobbyFields({ settings: SCHEMA, lobbySettings: ['goal'] }).map((f) => f.key)).toEqual(['goal']);
+    expect(lobbyFields({ settings: SCHEMA, lobbySettings: ['dice', 'goal', 'nope'] }).map((f) => f.key)).toEqual(['goal', 'dice']); // schema order
+    expect(lobbyFields({ settings: SCHEMA, lobbySettings: [] })).toEqual([]);
+    expect(lobbyFields(null)).toEqual([]);
+  });
+  it('the one-line fallback summary and the chips only use the shown fields', () => {
+    const game = { settings: SCHEMA, lobbySettings: ['goal'] };
+    expect(summarizeSettings(game, { goal: 30000, dice: 'fair' })).toBe('Winning target ₹30k');
+  });
+});
 
 describe('schemaFields / defaults', () => {
   it('keeps usable fields and skips junk without throwing', () => {
@@ -170,21 +182,5 @@ describe('formatValue / chips / summary', () => {
       ),
     ).toContain('Dice Lucky');
     expect(summarizeSettings(null, undefined)).toBe('');
-  });
-});
-
-describe('seats and room messages', () => {
-  it('keeps seats inside the game range and above the people already in', () => {
-    const game = { players: { min: 2, max: 6 } };
-    expect(seatBounds(game, 0)).toEqual({ min: 2, max: 6 });
-    expect(seatBounds(game, 4)).toEqual({ min: 4, max: 6 });
-    expect(seatBounds(game, 9)).toEqual({ min: 6, max: 6 });
-    expect(seatBounds({ players: { min: 2, max: 20 } }, 3)).toEqual({ min: 3, max: 20 });
-    expect(seatBounds(null, 1)).toEqual({ min: 2, max: 6 });
-  });
-  it('builds the small socket messages', () => {
-    expect(seatsMessage(5)).toEqual({ t: 'settings', settings: { maxPlayers: 5 } });
-    expect(visibilityMessage('public')).toEqual({ t: 'visibility', visibility: 'public' });
-    expect(visibilityMessage('anything else')).toEqual({ t: 'visibility', visibility: 'private' });
   });
 });

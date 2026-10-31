@@ -61,7 +61,6 @@ export const sanitizeEmote = (v, allowed = EMOTES) => (typeof v === 'string' && 
 const SIMPLE_ACTIONS = new Set([
   'ROLL',
   'PAY_BAIL',
-  'BUY',
   'SKIP_BUY',
   'END_TURN',
   'RESIGN',
@@ -70,9 +69,10 @@ const SIMPLE_ACTIONS = new Set([
   'TRADE_ACCEPT',
   'TRADE_REJECT',
   'TRADE_CANCEL',
+  'SNATCH', // SNATCH_CLOSE is deliberately absent: only the room's timer may close the window
 ]);
 // Actions that carry a single tile id.
-const TILE_ACTIONS = new Set(['UPGRADE', 'MORTGAGE', 'UNMORTGAGE', 'SELL_BUILDING']);
+const TILE_ACTIONS = new Set(['UPGRADE', 'MORTGAGE', 'UNMORTGAGE', 'SELL_BUILDING', 'PLACE_TRAP']);
 const MAX_MONEY = 100_000_000;
 
 const isTile = (t) => Number.isInteger(t) && t >= 0 && t < BOARD_SIZE;
@@ -99,6 +99,7 @@ export function sanitizeAction(input, playerId) {
   const type = input.type;
   if (typeof type !== 'string') return null;
   if (SIMPLE_ACTIONS.has(type)) return { type, playerId };
+  if (type === 'BUY') return input.shield === true ? { type, shield: true, playerId } : { type, playerId }; // Buy + Shield
   if (TILE_ACTIONS.has(type)) return isTile(input.tile) ? { type, tile: input.tile, playerId } : null;
   switch (type) {
     case 'BID': {

@@ -19,6 +19,12 @@ export const START_CASH_MAX = LIMITS.startCash?.max ?? 100_000;
 export const ROUND_LIMITS = [30, 50, null];
 /** The only dice modes accepted. */
 export const DICE_MODES = ['lucky', 'fair'];
+/** Snatch (docs/GAME_RULES.md section 9): tokens each player starts with, and how long the window stays open. */
+export const SNATCHES_DEFAULT = LIMITS.snatches ? engine.DEFAULT_SETTINGS.snatches : 1;
+export const SNATCHES_MAX = LIMITS.snatches?.max ?? 3;
+export const SNATCH_MS_DEFAULT = engine.DEFAULT_SETTINGS?.snatchMs ?? 3000;
+export const SNATCH_MS_MIN = LIMITS.snatchMs?.min ?? 1000;
+export const SNATCH_MS_MAX = LIMITS.snatchMs?.max ?? 10_000;
 
 /** What a room starts with when the host picks nothing: the engine's own defaults. */
 const D = engine.DEFAULT_SETTINGS || {};
@@ -28,6 +34,8 @@ export const ROOM_DEFAULTS = Object.freeze({
   maxRounds: D.maxRounds === undefined ? 50 : D.maxRounds,
   dice: D.dice ?? 'lucky',
   auctionOnDecline: D.auctionOnDecline ?? true,
+  snatches: D.snatches ?? SNATCHES_DEFAULT,
+  snatchMs: D.snatchMs ?? SNATCH_MS_DEFAULT,
 });
 
 const SETTING_KEYS = Object.keys(ROOM_DEFAULTS);
@@ -44,7 +52,7 @@ const isInt = (v) => typeof v === 'number' && Number.isInteger(v);
  *
  * Returns `{ settings, maxPlayers?, errors }`:
  *  - `settings` only contains keys that were present AND valid (`goal`, `startCash`,
- *    `maxRounds`, `dice`, `auctionOnDecline`). `maxRounds: null` (unlimited) is a valid
+ *    `maxRounds`, `dice`, `auctionOnDecline`, `snatches`, `snatchMs`). `maxRounds: null` (unlimited) is a valid
  *    value, so test with `in`.
  *  - unknown keys (e.g. `debug`, `seed`, or echoed engine defaults) are ignored;
  *  - `maxPlayers` (2..6) is accepted as a convenience for the room seats;
@@ -85,6 +93,16 @@ export function sanitizeSettings(input) {
     const v = input.auctionOnDecline;
     if (typeof v === 'boolean') settings.auctionOnDecline = v;
     else errors.push('Auction on decline must be true or false.');
+  }
+  if (has('snatches')) {
+    const v = input.snatches;
+    if (isInt(v) && v >= 0 && v <= SNATCHES_MAX) settings.snatches = v;
+    else errors.push(`Snatch tokens must be a whole number between 0 and ${SNATCHES_MAX}.`);
+  }
+  if (has('snatchMs')) {
+    const v = input.snatchMs;
+    if (isInt(v) && v >= SNATCH_MS_MIN && v <= SNATCH_MS_MAX) settings.snatchMs = v;
+    else errors.push(`Snatch window must be between ${SNATCH_MS_MIN} and ${SNATCH_MS_MAX} ms.`);
   }
   if (has('maxPlayers')) {
     const mp = parseMaxPlayers(input.maxPlayers);

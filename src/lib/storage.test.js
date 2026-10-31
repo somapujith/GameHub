@@ -19,17 +19,20 @@ beforeEach(async () => {
 });
 
 describe('settings', () => {
-  it('has contract defaults and merges patches', () => {
-    const s = S.loadSettings();
-    expect(s).toMatchObject({ sfx: true, voice: true, tts: true, volume: 0.8, subtitles: 'te', reducedMotion: false });
-    expect(Object.keys(s.actors)).toHaveLength(12);
-    expect(Object.values(s.actors).every(Boolean)).toBe(true);
-    S.saveSettings({ volume: 5, subtitles: 'xx', actors: { ntr: false } });
-    const n = S.loadSettings();
-    expect(n.volume).toBe(1);
-    expect(n.subtitles).toBe('te');
-    expect(n.actors.ntr).toBe(false);
-    expect(n.actors.prabhas).toBe(true);
+  it('has sound and motion defaults and merges patches', () => {
+    expect(S.loadSettings()).toEqual({ sfx: true, volume: 0.8, reducedMotion: false });
+    S.saveSettings({ volume: 5, reducedMotion: true });
+    expect(S.loadSettings()).toEqual({ sfx: true, volume: 1, reducedMotion: true });
+    S.saveSettings({ sfx: false, voice: true, subtitles: 'te', actors: { ntr: false } }); // unknown keys are dropped
+    expect(S.loadSettings()).toEqual({ sfx: false, volume: 1, reducedMotion: true });
+  });
+
+  it('loads settings saved by older builds (with voice, subtitle and actor keys) and ignores those keys', async () => {
+    vi.resetModules();
+    const m = stubLocalStorage();
+    m.set('hyd.settings.v1', JSON.stringify({ sfx: false, voice: true, tts: false, volume: 0.3, subtitles: 'tn', reducedMotion: true, actors: { ntr: false } }));
+    const O = await import('./storage.js');
+    expect(O.loadSettings()).toEqual({ sfx: false, volume: 0.3, reducedMotion: true });
   });
 
   it('notifies subscribers and keeps a stable snapshot between changes', () => {
@@ -55,10 +58,8 @@ describe('settings', () => {
     const B = await import('./storage.js');
     B.saveSettings({ volume: 0.3 });
     expect(B.loadSettings().volume).toBe(0.3);
-    B.saveGame({ players: [], owners: [], phase: 'roll' }, { a: 1 });
-    expect(B.loadGame().meta).toEqual({ a: 1 });
-    B.clearGame();
-    expect(B.loadGame()).toBeNull();
+    B.saveProfile({ name: 'Nithin' });
+    expect(B.loadProfile().name).toBe('Nithin');
   });
 });
 
@@ -71,31 +72,15 @@ describe('levels and profile', () => {
     expect(S.levelInfo(-5).level).toBe(1);
   });
 
-  it('addMatchResult awards xp/coins and updates stats', () => {
-    const r = S.addMatchResult({ won: true, rank: 1, worth: 71000, rentEarned: 5000, propertiesBought: 6, players: [{}, {}, {}, {}] });
-    // 40 + 120 + 3*15 + min(5000/50, 80) = 285
-    expect(r.xpGained).toBe(285);
-    expect(r.coinsGained).toBe(25 + 100 + 30 + 50);
-    expect(r.level).toBe(S.levelInfo(285).level);
-    expect(r.leveledUp).toBe(true);
-    const p = S.loadProfile();
-    expect(p.stats).toEqual({ games: 1, wins: 1, rentEarned: 5000, bestWorth: 71000, propertiesBought: 6, hotelsBuilt: 0 });
-    expect(p.coins).toBe(500 + r.coinsGained);
-    const lose = S.addMatchResult({ won: false, rank: 4, worth: 1000, rentEarned: 0, propertiesBought: 0, players: 4, rounds: 30 });
-    expect(lose.xpGained).toBe(40);
-    expect(S.loadProfile().stats.bestWorth).toBe(71000);
-  });
-
-  it('loads older profiles that lack newer stats, and counts hotels', async () => {
+  it('loads older profiles that lack newer stats (and ignores the retired story flag)', async () => {
     vi.resetModules();
     const m = stubLocalStorage();
-    m.set('hyd.profile.v1', JSON.stringify({ name: 'Old', xp: 120, coins: 10, stats: { games: 3, wins: 1, rentEarned: 100, bestWorth: 5000, propertiesBought: 4 } }));
+    m.set('hyd.profile.v1', JSON.stringify({ name: 'Old', xp: 120, coins: 10, seenStory: true, stats: { games: 3, wins: 1, rentEarned: 100, bestWorth: 5000, propertiesBought: 4 } }));
     const O = await import('./storage.js');
     const p = O.loadProfile();
     expect(p).toMatchObject({ name: 'Old', xp: 120, level: 2, coins: 10 });
     expect(p.stats).toEqual({ games: 3, wins: 1, rentEarned: 100, bestWorth: 5000, propertiesBought: 4, hotelsBuilt: 0 });
-    O.addMatchResult({ won: false, rank: 2, players: 2, hotelsBuilt: 2 });
-    expect(O.loadProfile().stats.hotelsBuilt).toBe(2);
+    expect(p).not.toHaveProperty('seenStory');
   });
 
   it('useProfile-style updates merge stats', () => {
@@ -125,23 +110,22 @@ describe('daily reward', () => {
   });
 });
 
-describe('campaign and saved game', () => {
-  it('completes chapters once and unlocks the next', () => {
-    expect(S.loadCampaign()).toEqual({ unlocked: 1, completed: [] });
-    expect(S.completeChapter('c1').firstTime).toBe(true);
-    expect(S.completeChapter('c1').firstTime).toBe(false);
-    expect(S.loadCampaign()).toEqual({ unlocked: 2, completed: ['c1'] });
+describe('retired features', () => {
+  it('no longer exports the offline-game, campaign, match-result or voice helpers', () => {
+    for (const name of ['saveGame', 'loadGame', 'clearGame', 'hasSavedGame', 'subscribeGame', 'loadCampaign', 'completeChapter', 'useCampaign', 'addMatchResult', 'isActorEnabled', 'ACTOR_IDS']) {
+      expect(S, name).not.toHaveProperty(name);
+    }
   });
 
-  it('round-trips and clears a saved game, ignoring finished games', () => {
-    expect(S.loadGame()).toBeNull();
-    const state = { players: [{ id: 'me' }], owners: [], phase: 'roll', round: 2 };
-    S.saveGame(state, { chapterId: 'c1' });
-    expect(S.loadGame()).toMatchObject({ state, meta: { chapterId: 'c1' } });
-    S.saveGame({ ...state, phase: 'over' }, {});
-    expect(S.loadGame()).toBeNull();
-    S.saveGame(state, {});
-    S.clearGame();
-    expect(S.loadGame()).toBeNull();
+  it('removes the keys an older build left behind for the offline game and the campaign', async () => {
+    vi.resetModules();
+    const m = stubLocalStorage();
+    m.set('hyd.game.v1', '{"state":{"players":[],"owners":[]}}');
+    m.set('hyd.campaign.v1', '{"completed":["c1"]}');
+    m.set('hyd.profile.v1', '{"name":"Keep"}');
+    const O = await import('./storage.js');
+    expect(m.has('hyd.game.v1')).toBe(false);
+    expect(m.has('hyd.campaign.v1')).toBe(false);
+    expect(O.loadProfile().name).toBe('Keep');
   });
 });

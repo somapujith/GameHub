@@ -9,8 +9,7 @@ import PageHead from '@/platform/home/PageHead.jsx';
 import LeaderTabs from '@/platform/home/LeaderTabs.jsx';
 import Podium from '@/platform/home/Podium.jsx';
 import RankRow from '@/platform/home/RankRow.jsx';
-import { useAccount } from '@/components/shell/hooks.js';
-import { levelInfo, useProfile } from '@/components/shell/stores.js';
+import { useAccount, useProgress } from '@/components/shell/hooks.js';
 import { fmtNum } from '@/components/shell/ui.jsx';
 import '@/styles/hubhome.css';
 
@@ -62,22 +61,22 @@ function Notice({ icon, title, children, action }) {
 }
 
 /** "Your record" under the board: the selected game's numbers, or platform totals on the Overall tab. */
-function YourRecord({ game, user, profile, liveGames }) {
-  const li = levelInfo(profile.xp);
+function YourRecord({ game, user, liveGames }) {
+  const { info: li, coins } = useProgress();
   let tiles;
   let title;
   let note = null;
   if (!game) {
-    const per = liveGames.map((g) => resolveGameStats({ user, profile, gameId: g.id })).filter(Boolean);
+    const per = liveGames.map((g) => resolveGameStats({ user, gameId: g.id })).filter(Boolean);
     title = 'Your record';
     tiles = [
       { label: 'Level', value: fmtNum(li.level) },
       { label: 'Games', value: fmtNum(per.reduce((n, s) => n + s.games, 0)) },
       { label: 'Wins', value: fmtNum(per.reduce((n, s) => n + s.wins, 0)) },
-      { label: 'Coins', value: fmtNum(profile.coins) },
+      { label: 'Coins', value: fmtNum(coins) },
     ];
   } else {
-    const stats = resolveGameStats({ user, profile, gameId: game.id });
+    const stats = resolveGameStats({ user, gameId: game.id });
     title = `Your ${game.name} record`;
     tiles = stats ? statDefs(game, 4).map((d) => ({ label: d.label, value: fmtStat(stats[d.key] ?? (d.key === 'bestScore' ? stats.bestScore : null), d) })) : null;
     if (!tiles) {
@@ -114,7 +113,6 @@ function YourRecord({ game, user, profile, liveGames }) {
 /** `/leaderboard` — Overall + one tab per live game (`?game=`), podium for the top three, rows for the rest. */
 export default function Leaderboard() {
   const [params, setParams] = useSearchParams();
-  const [profile] = useProfile();
   const { account, guest, signedIn, user } = useAccount();
   const { booting, ready, retry } = useApiGate();
   const live = useMemo(liveList, []);
@@ -149,7 +147,7 @@ export default function Leaderboard() {
           </Link>
         }
       >
-        The leaderboard ranks players by their results in online games. You can still play offline.
+        The leaderboard ranks players by their results in online games.
       </Notice>
     );
   } else if (state === 'offline' || state === 'error') {
@@ -163,7 +161,7 @@ export default function Leaderboard() {
           </button>
         }
       >
-        The rankings need a connection. Offline games still work, and your own record is below.
+        The rankings need a connection. Try again in a moment.
       </Notice>
     );
   } else if (!rows.length) {
@@ -225,7 +223,7 @@ export default function Leaderboard() {
         <section id={PANEL_ID} role="tabpanel" aria-labelledby={`hh2-tab-${gameId}`} aria-busy={state === 'loading'} className="hh2-lb">
           {body}
         </section>
-        <YourRecord game={game} user={user} profile={profile} liveGames={live} />
+        <YourRecord game={game} user={user} liveGames={live} />
       </div>
     </div>
   );

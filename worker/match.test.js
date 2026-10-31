@@ -15,12 +15,13 @@ const engine = await import('../shared/index.js');
 const tycoon = getAdapter('hyderabad-tycoon');
 const U1 = '00000000-0000-4000-8000-000000000001';
 const U2 = '00000000-0000-4000-8000-000000000002';
+const U3 = '00000000-0000-4000-8000-000000000003';
 
 function finishedTycoonRoom() {
   const players = [
     { id: U1, name: 'Host', avatar: 1 },
     { id: U2, name: 'Guest', avatar: 2 },
-    { id: 'bot_1', name: 'Chai Uncle', avatar: 3, isBot: true, bot: { reserve: 500, greed: 1 } },
+    { id: U3, name: 'Third', avatar: 3 },
   ];
   const state = engine.createGame({ players, seed: 11 });
   state.players[0].stats.rentEarned = 1234;
@@ -59,24 +60,23 @@ describe('buildMatchRecord (game-agnostic, via the adapter)', () => {
     expect(rec.players).toHaveLength(3);
     const host = rec.players.find((p) => p.user_id === U1);
     expect(host).toMatchObject({ name: 'Host', is_bot: false, hotels_built: 2, rent_earned: 1234 });
-    const bot = rec.players.find((p) => p.is_bot);
-    expect(bot).toMatchObject({ user_id: null, name: 'Chai Uncle', hotels_built: 0 });
+    expect(rec.players.every((p) => p.is_bot === false && p.user_id)).toBe(true);
+    expect(rec.players.find((p) => p.user_id === U3)).toMatchObject({ name: 'Third', hotels_built: 0 });
     expect(rec.players.map((p) => p.rank).sort()).toEqual([1, 2, 3]);
 
-    expect(rec.users.map((u) => u.user_id).sort()).toEqual([U1, U2]);
+    expect(rec.users.map((u) => u.user_id).sort()).toEqual([U1, U2, U3]);
     const win = rec.users.find((u) => u.user_id === U1);
     expect(win).toMatchObject({ won: 1, lg: 1, lw: 1, lrent: 1234 });
     expect(win.lworth).toBe(win.score);
     expect(win.xp).toBeGreaterThan(rec.users.find((u) => u.user_id === U2).xp);
     expect(rec.users.find((u) => u.user_id === U2)).toMatchObject({ won: 0, lw: 0, lg: 1 });
     expect(rec.seats).toHaveLength(3);
-    expect(rec.seats.filter((s) => s.isBot)).toHaveLength(1);
+    expect(rec.seats.map((s) => s.id).sort()).toEqual([U1, U2, U3]);
   });
 
-  it('a bot winner has no winner_id; a game without legacy columns leaves users.* alone', () => {
+  it('a game without legacy columns leaves users.* alone', () => {
     const room = finishedTycoonRoom();
-    room.state.winner = 'bot_1';
-    expect(buildMatchRecord(room, tycoon).winnerId).toBeNull();
+    expect(buildMatchRecord(room, tycoon).winnerId).toBe(U1);
 
     const other = {
       id: 'counter-race',
@@ -105,8 +105,8 @@ describe('persistMatch', () => {
 
   it('writes the match, the legacy columns and user_game_stats in ONE statement, ratings first', async () => {
     queryMock.mockImplementation(async (env, text) => {
-      if (/FROM user_game_stats WHERE/.test(text)) return [{ user_id: U1, rating: 1100 }]; // U2 is new
-      return [{ inserted: 1, users: [{ id: U1, xp: 130 }, { id: U2, xp: 60 }] }];
+      if (/FROM user_game_stats WHERE/.test(text)) return [{ user_id: U1, rating: 1100 }]; // U2 and U3 are new
+      return [{ inserted: 1, users: [{ id: U1, xp: 130 }, { id: U2, xp: 60 }, { id: U3, xp: 50 }] }];
     });
     const rec = buildMatchRecord(finishedTycoonRoom(), tycoon);
     const res = await persistMatch({}, rec);
@@ -114,7 +114,7 @@ describe('persistMatch', () => {
 
     const [ratingCall, writeCall] = queryMock.mock.calls;
     expect(ratingCall[1]).toMatch(/SELECT user_id, rating FROM user_game_stats WHERE game_id = \$1/);
-    expect(ratingCall[2]).toEqual(['hyderabad-tycoon', [U1, U2]]);
+    expect(ratingCall[2]).toEqual(['hyderabad-tycoon', [U1, U2, U3]]);
 
     expect(writeCall[1]).toBe(PERSIST_SQL);
     const params = writeCall[2];
@@ -122,9 +122,9 @@ describe('persistMatch', () => {
     expect(params[0]).toBe(rec.id);
     expect(params[13]).toBe('hyderabad-tycoon');
     const users = JSON.parse(params[11]);
-    expect(users.map((u) => u.user_id).sort()).toEqual([U1, U2]);
+    expect(users.map((u) => u.user_id).sort()).toEqual([U1, U2, U3]);
     for (const u of users) expect(Number.isInteger(u.delta) && Math.abs(u.delta) <= 24).toBe(true);
-    // the winner (rated 1100) against a 1000 newcomer and a 1000 bot gains less than +24
+    // the winner (rated 1100) against a 1000 newcomer and another 1000 newcomer gains less than +24
     const winner = users.find((u) => u.user_id === U1);
     expect(winner.delta).toBeGreaterThan(0);
     expect(winner.delta).toBeLessThan(24);

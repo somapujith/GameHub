@@ -1,6 +1,5 @@
-import { memo, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useReducedMotion } from './ui/helpers.js';
-import '@/styles/board.css';
 import '@/styles/dice.css';
 
 // pip cells on a 3x3 grid as [row, col]
@@ -14,18 +13,8 @@ const PIPS = {
 };
 
 function PipGrid({ value }) {
-  return (PIPS[value] || []).map(([r, c]) => <i className="hb-pip" key={`${r}${c}`} style={{ gridRow: r, gridColumn: c }} />);
+  return (PIPS[value] || []).map(([r, c]) => <i className="cp-pip" key={`${r}${c}`} style={{ gridRow: r, gridColumn: c }} />);
 }
-
-/** Flat presentational die face: white rounded square with yellow pips. value 0/undefined = blank. */
-export const DiceFace = memo(function DiceFace({ value = 0, className = '', style }) {
-  const v = Math.round(Number(value)) || 0;
-  return (
-    <span className={`hb-die ${className}`.trim()} style={style} data-value={v} aria-hidden="true">
-      <PipGrid value={v} />
-    </span>
-  );
-});
 
 // ---- 3D cube ---------------------------------------------------------------
 // Faces (opposites sum to 7): 1 front, 6 back, 2 top, 5 bottom, 3 right, 4 left.
@@ -43,14 +32,14 @@ const jitter = (n) => (Math.random() * 2 - 1) * n;
 const newSeed = () => ({ tz: jitter(11), dx: jitter(5), dy: jitter(6) });
 
 /** Resting pose: face `v` towards the viewer, tipped so top and right faces show, plus a slight random twist. */
-function restTransform(v, index, seed) {
-  const face = v >= 1 && v <= 6 ? v : index ? 2 : 5;
+function restTransform(v, seed) {
+  const face = v >= 1 && v <= 6 ? v : 5;
   const vx = -17 + seed.dx;
-  const vy = (index ? 19 : -21) + seed.dy;
+  const vy = -21 + seed.dy;
   return `rotateX(${vx.toFixed(1)}deg) rotateY(${vy.toFixed(1)}deg) rotateZ(${seed.tz.toFixed(1)}deg) ${ORIENT[face]}`;
 }
 
-function Die3D({ value, index, rolling, reduced, settleMs = 560 }) {
+function Die3D({ value, rolling, reduced, settleMs = 560 }) {
   const cube = useRef(null);
   const seed = useRef(null);
   if (!seed.current) seed.current = newSeed();
@@ -83,7 +72,7 @@ function Die3D({ value, index, rolling, reduced, settleMs = 560 }) {
       if (cur && cur !== 'none') el.style.transform = cur;
       void el.offsetWidth; // flush so the transition starts from the frozen pose
       el.style.transition = reduced ? 'none' : `transform ${settleMs}ms cubic-bezier(0.2, 1.1, 0.34, 1)`;
-      el.style.transform = restTransform(value, index, seed.current);
+      el.style.transform = restTransform(value, seed.current);
       if (!reduced) {
         setLanding(true);
         clearTimeout(landTimer.current);
@@ -92,18 +81,18 @@ function Die3D({ value, index, rolling, reduced, settleMs = 560 }) {
     } else {
       // first paint, or the value changed without a roll animation: swap the face
       el.style.transition = reduced ? 'none' : 'transform 380ms ease-out';
-      el.style.transform = restTransform(value, index, seed.current);
+      el.style.transform = restTransform(value, seed.current);
     }
     return undefined;
-  }, [rolling, value, index, reduced, settleMs]);
+  }, [rolling, value, reduced, settleMs]);
 
   return (
-    <span className={`hb-die3d hb-die3d--${index ? 'b' : 'a'}${rolling && !reduced ? ' is-tossing' : ''}${landing ? ' is-landing' : ''}`} style={{ '--hb-die-settle': `${settleMs}ms` }}>
-      <span className="hb-die3d__shadow" />
-      <span className="hb-die3d__air">
-        <span className="hb-cube" ref={cube}>
+    <span className={`cp-die3d${rolling && !reduced ? ' is-tossing' : ''}${landing ? ' is-landing' : ''}`} style={{ '--cp-die-settle': `${settleMs}ms` }}>
+      <span className="cp-die3d__shadow" />
+      <span className="cp-die3d__air">
+        <span className="cp-cube" ref={cube}>
           {[1, 2, 3, 4, 5, 6].map((f) => (
-            <span className={`hb-face hb-face--${f}`} key={f} data-face={f}>
+            <span className={`cp-face cp-face--${f}`} key={f} data-face={f}>
               <PipGrid value={f} />
             </span>
           ))}
@@ -113,40 +102,54 @@ function Die3D({ value, index, rolling, reduced, settleMs = 560 }) {
   );
 }
 
-const ASSIST_NOTE = { comeback: 'Comeback boost', mercy: 'Mercy rule', pity: 'A bonus roll was due' };
+const ASSIST_NOTE = { comeback: 'Comeback boost', mercy: 'Mercy rule', pity: 'A bonus roll was due', antibust: 'Anti-bust' };
 
-/** Small "Lucky dice 🍀" badge, shown when the game uses lucky dice (`view.cfg.dice === 'lucky'`). */
+/** Small "Lucky dice" badge, shown when the game uses lucky dice (`view.cfg.dice === 'lucky'`). */
 export function LuckyBadge({ session }) {
   const mode = session?.view?.cfg?.dice ?? session?.display?.cfg?.dice;
   if (mode !== 'lucky') return null;
   return (
-    <span className="hb-lucky" title="Lucky dice: a small, bounded nudge that helps players who are behind">
+    <span className="cp-lucky" title="Lucky dice: a small, bounded nudge that helps players who are behind">
       Lucky dice <span aria-hidden="true">🍀</span>
     </span>
   );
 }
 
-/** A single presentational die. The roll control lives between the players. */
+/** The die as the last roll left it (0 = not rolled yet). */
+const shownDie = (session) => Math.round(Number((session?.display?.dice || session?.view?.dice || [0])[0])) || 0;
+
+/** The number to feed rent previews (utilities pay a multiple of the die): the last roll, else a typical 4. */
+export const dieValue = (session) => shownDie(session) || 4;
+
+/** The one presentational die. Rolling is done by the primary button of the control panel. */
 export function Dice({ session }) {
   const reduced = useReducedMotion();
   const rolling = !!session?.rolling;
-  const shown = session?.display?.dice || session?.view?.dice || [0];
-  const value = shown[0] || 3;
-  const legacy = shown.length > 1 && Number.isInteger(shown[1]);
+  const value = shownDie(session);
   const assist = session?.display?.assist || null;
-  const total = shown.reduce((sum, n) => sum + (Number(n) || 0), 0);
-  const hint = rolling ? 'Rolling…' : total === 0 ? 'Ready to roll' : legacy ? `Moved ${total} spaces` : value === 6 ? 'Six! Kya baat hai.' : `Rolled ${value}`;
+  const settleMs = session?.display?.diceSettleMs ?? 560;
+
+  let hint;
+  let announce;
+  if (rolling) {
+    hint = 'Rolling…';
+    announce = 'Rolling the die';
+  } else if (value === 0) {
+    hint = 'Ready to roll';
+    announce = 'Die ready. Use the roll button.';
+  } else {
+    hint = value === 6 ? 'Six! Roll again' : `Rolled ${value}`;
+    announce = `Die shows ${value}. Move ${value} ${value === 1 ? 'space' : 'spaces'}.`;
+  }
 
   return (
-    <div className={`hb-dice hb-dice--single${rolling ? ' is-rolling' : ''}${reduced ? ' is-reduced' : ''}`} role="group" aria-label="Single die" aria-busy={rolling}>
-      <span className="hb-dice__row" aria-hidden="true">
-        <Die3D value={value} index={0} rolling={rolling} reduced={reduced} settleMs={session?.display?.diceSettleMs ?? 560} />
+    <div className={`cp-dice${rolling ? ' is-rolling' : ''}${reduced ? ' is-reduced' : ''}`} role="group" aria-label="Die" aria-busy={rolling}>
+      <span className="cp-dice__row" aria-hidden="true">
+        <Die3D value={value} rolling={rolling} reduced={reduced} settleMs={settleMs} />
       </span>
-      <span className="hb-dice__hint" aria-hidden="true">{hint}</span>
-      <span className="hb-sr" role="status" aria-live="polite" aria-atomic="true">
-        {rolling ? 'Rolling the die' : total === 0 ? 'Die ready. Use the roll button between the players.' : legacy ? `Previous game roll: ${shown.join(' and ')}. Move ${total} spaces.` : `Die shows ${value}. Move ${value} ${value === 1 ? 'space' : 'spaces'}.`}
-      </span>
-      {assist && !rolling ? <span className="hb-dice__assist" title={ASSIST_NOTE[assist] || 'Lucky help'}>Lucky help <span aria-hidden="true">✦</span></span> : null}
+      <span className="cp-dice__hint" aria-hidden="true">{hint}</span>
+      <span className="cp-sr" role="status" aria-live="polite" aria-atomic="true">{announce}</span>
+      {assist && !rolling ? <span className="cp-dice__assist" title={ASSIST_NOTE[assist] || 'Lucky help'}>Lucky help <span aria-hidden="true">✦</span></span> : null}
     </div>
   );
 }

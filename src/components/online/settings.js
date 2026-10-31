@@ -3,6 +3,8 @@
 //
 // Field: { key, label, type: 'segmented'|'stepper'|'toggle', options?: [{value,label}], min?, max?, step?,
 //          default, format?: 'inr'|'number'|'text', help? }
+// A game may list the keys its lobby shows in `manifest.lobbySettings` (the others keep their defaults and are
+// never rendered); without that field the lobby shows every setting.
 //   - segmented: pick one of `options` (a value may be null, e.g. "unlimited")
 //   - stepper:   a number with -/+ buttons (`min`/`max`/`step`); optional `options` become quick-pick chips
 //   - toggle:    on/off
@@ -16,6 +18,13 @@ const num = (v) => typeof v === 'number' && Number.isFinite(v);
 /** The usable fields of a schema (unknown types / keyless entries are skipped, never thrown on). */
 export function schemaFields(schema) {
   return (Array.isArray(schema) ? schema : []).filter((f) => f && typeof f.key === 'string' && f.key && TYPES.has(f.type));
+}
+
+/** The fields the lobby renders: the schema narrowed to `game.lobbySettings` (all of it when the game sets none). */
+export function lobbyFields(game) {
+  const fields = schemaFields(game && game.settings);
+  const keys = game && game.lobbySettings;
+  return Array.isArray(keys) ? fields.filter((f) => keys.includes(f.key)) : fields;
 }
 
 export function fieldOptions(field) {
@@ -109,27 +118,5 @@ export function summarizeSettings(game, raw) {
       /* a broken summarize must never break the lobby */
     }
   }
-  return settingsChips(game && game.settings, settings).join(' · ');
+  return settingsChips(lobbyFields(game), settings).join(' · ');
 }
-
-/** Seat limits for the host's "Max players" stepper: never below the people already in, never outside the game's range. */
-export function seatBounds(game, playerCount = 0) {
-  const gmin = game && game.players && num(game.players.min) ? game.players.min : 2;
-  const gmax = game && game.players && num(game.players.max) ? game.players.max : 6;
-  return { min: Math.min(gmax, Math.max(gmin, playerCount || 0)), max: gmax };
-}
-
-/** `{ t:'settings', settings:{ maxPlayers } }`: the room's seat count travels beside the game settings. */
-export function seatsMessage(n) {
-  return { t: 'settings', settings: { maxPlayers: n } };
-}
-
-/** `{ t:'visibility', visibility }` (host, lobby only). */
-export function visibilityMessage(visibility) {
-  return { t: 'visibility', visibility: visibility === 'public' ? 'public' : 'private' };
-}
-
-export const VISIBILITY_HELP = {
-  public: 'Public rooms appear in Open tables, so anyone can find and join them.',
-  private: 'Private rooms need the code or link. Only people you share it with can join.',
-};

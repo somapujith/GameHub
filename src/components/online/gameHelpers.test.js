@@ -29,6 +29,7 @@ describe('blankOptions', () => {
       debt: null,
       tradeOffer: null,
       tradeSent: null,
+      snatch: null,
       bid: null,
       trade: { canOffer: false },
     });

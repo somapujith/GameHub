@@ -1,8 +1,9 @@
 import { memo, useState } from 'react';
-import { tilePosition } from '@shared/board.js';
+import { GRID, tilePosition, tileSide } from '@shared/board.js';
 import '@/styles/board.css';
 
-// Offsets (in tile units, from the tile centre) so up to 6 pawns fan out without overlapping.
+// Offsets (as a fraction of the tile's own width/height, from its centre) so up to 6 pawns fan out
+// without overlapping.
 const FAN = {
   1: [[0, 0.02]],
   2: [[-0.22, 0.04], [0.22, 0.04]],
@@ -11,12 +12,12 @@ const FAN = {
   5: [[-0.27, -0.2], [0, -0.2], [0.27, -0.2], [-0.14, 0.2], [0.14, 0.2]],
   6: [[-0.27, -0.2], [0, -0.2], [0.27, -0.2], [-0.27, 0.2], [0, 0.2], [0.27, 0.2]],
 };
-// Pawn diameter in tile units by crowd size.
-const DIAMETER = { 1: 0.54, 2: 0.42, 3: 0.36, 4: 0.34, 5: 0.27, 6: 0.27 };
+// Pawn diameter in edge-tile units (--hb-u) by crowd size.
+const DIAMETER = { 1: 0.46, 2: 0.38, 3: 0.33, 4: 0.3, 5: 0.25, 6: 0.25 };
 
-// Corner tiles keep their icon + label pill (START / AUCTION / JAIL / KISMET) in the lower third,
-// so the fan sits in the upper ~60% of the tile and the pawns are a little smaller.
-const CORNERS = new Set([0, 7, 14, 21]);
+// Corner tiles keep their icon + label pill in the lower third, so the fan sits in the upper ~60%
+// of the tile. A corner is 1.4 edge tiles wide, so its pawns are larger in absolute terms.
+const CORNERS = new Set([0, 10, 20, 30]);
 const CORNER_FAN = {
   1: [[0, -0.12]],
   2: [[-0.2, -0.14], [0.2, -0.14]],
@@ -25,18 +26,34 @@ const CORNER_FAN = {
   5: [[-0.3, -0.27], [0, -0.27], [0.3, -0.27], [-0.15, -0.02], [0.15, -0.02]],
   6: [[-0.3, -0.27], [0, -0.27], [0.3, -0.27], [-0.3, -0.02], [0, -0.02], [0.3, -0.02]],
 };
-const CORNER_DIAMETER = { 1: 0.42, 2: 0.34, 3: 0.3, 4: 0.27, 5: 0.23, 6: 0.23 };
+const CORNER_DIAMETER = { 1: 0.6, 2: 0.48, 3: 0.42, 4: 0.38, 5: 0.32, 6: 0.32 };
 
-/** Where a pawn sits: percentage coordinates inside the 8x8 grid overlay. */
+// Track geometry in edge-tile units, mirroring `.hb-grid` in board.css: the two corner tracks are
+// CORNER_W wide, the nine between them are 1.
+const CORNER_W = 1.4;
+const TOTAL = CORNER_W * 2 + (GRID - 2);
+const trackSize = (i) => (i === 0 || i === GRID - 1 ? CORNER_W : 1);
+const trackStart = (i) => (i === 0 ? 0 : CORNER_W + (i - 1));
+
+// Edge tiles keep their colour band / icon on the inner side, so the pawn rests a little towards the outer edge.
+const OUTWARD = 0.08;
+const PUSH = { bottom: [0, 1], top: [0, -1], left: [-1, 0], right: [1, 0] };
+
+/** Where a pawn sits: percentage coordinates inside the 11x11 grid overlay, and its diameter in edge-tile units. */
 export function pawnPlacement(pos, slot = 0, count = 1) {
   const { col, row } = tilePosition(pos);
   const n = Math.min(6, Math.max(1, count));
   const corner = CORNERS.has(pos);
   const fan = corner ? CORNER_FAN : FAN;
-  const [ox, oy] = (fan[n] || fan[1])[Math.min(slot, n - 1)];
+  let [ox, oy] = (fan[n] || fan[1])[Math.min(slot, n - 1)];
+  if (!corner) {
+    const [px, py] = PUSH[tileSide(pos)];
+    ox += px * OUTWARD;
+    oy += py * OUTWARD;
+  }
   return {
-    x: ((col + 0.5 + ox) / 8) * 100,
-    y: ((row + 0.5 + oy) / 8) * 100,
+    x: ((trackStart(col) + trackSize(col) * (0.5 + ox)) / TOTAL) * 100,
+    y: ((trackStart(row) + trackSize(row) * (0.5 + oy)) / TOTAL) * 100,
     d: (corner ? CORNER_DIAMETER : DIAMETER)[n],
   };
 }

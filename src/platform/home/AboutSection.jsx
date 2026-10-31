@@ -16,9 +16,6 @@ export default function AboutSection() {
       <p>
         <b>{BRAND.name}</b> is a small, fan-made and non-commercial marketplace of multiplayer games. Pick a game, grab your friends and play in seconds.
       </p>
-      <p>
-        Voice lines in games are fan-made and original. No film dialogue, songs, recordings or photos are used, and nobody named in a game has recorded or endorsed anything here. All characters are generic and fictional.
-      </p>
       {gameCredits.map((g) => (
         <div key={g.id} className="hh2-about__game">
           <b>{g.name}</b>
@@ -27,7 +24,7 @@ export default function AboutSection() {
           ))}
         </div>
       ))}
-      <p className="hub-muted">Built with React and Vite. Fonts: Noto Sans Telugu (SIL Open Font License). All art is inline SVG.</p>
+      <p className="hub-muted">Built with React and Vite. Fonts: Noto Sans (SIL Open Font License). All art is inline SVG.</p>
     </section>
   );
 }

@@ -3,9 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import { getOptions as tycoonGetOptions, standings as tycoonStandings } from '@shared/index.js';
 import * as presenterModule from '@/lib/session/usePresenter.js';
 import { useAuth } from '@/lib/auth.jsx';
-import { pickLine } from '@/lib/voiceLines.js';
-import { voice } from '@/lib/voice.js';
-import { blankOptions, buildResult } from '@/components/online/gameHelpers.js';
+import { buildResult } from '@/components/online/gameHelpers.js';
+import { gateOptions } from '@/lib/session/gateOptions.js';
 import { useRoomConnection } from '@/components/online/useRoomConnection.js';
 import { paths } from '@/platform/paths.js';
 
@@ -19,16 +18,6 @@ const ACTION_TIMEOUT = 5000; // re-enable the UI if the server never answers an 
 //   const { room, view, chat, connection, error, errorId, fatal, send, leave } = useRoomConnection(code, { onState, onChat });
 export { useRoomConnection };
 
-function playEmote(key) {
-  if (typeof key !== 'string' || !key.startsWith('emote_')) return;
-  try {
-    const line = pickLine(key);
-    if (line) voice.speak(line, { priority: 1 });
-  } catch {
-    /* sound is never worth a crash */
-  }
-}
-
 /**
  * Online game session for GameView: `{ room, session, status, error, errorId, sendRoom, fatal }`.
  *
@@ -39,6 +28,11 @@ function playEmote(key) {
  *
  * Server events are replayed by the shared presenter; the first state after every (re)connect is a snapshot
  * (events: []) and goes through `reset()` so nothing is animated twice.
+ *
+ * `session.view` is ALWAYS the latest authoritative state (set the moment a message arrives); the presenter's delayed
+ * copy is `session.display`. `session.options` come from `view` too. The one place they are not blanked while the
+ * presenter is busy is the snatch window (phase 'snatch'): it runs in real time, so a SNATCH press must never wait
+ * for an animation or for another request.
  *
  * `useOnlineGame(code, { getOptions, standings })`: the two engine calls that are specific to a game.
  *  - getOptions(view, meId) -> the allowed actions for `session.options`. Defaults to the Tycoon engine for now.
@@ -57,6 +51,8 @@ export function useOnlineGame(code, { getOptions = tycoonGetOptions, standings =
   const awaitTimer = useRef(null);
   const busyRef = useRef(false);
   const awaitingRef = useRef(false);
+  const viewRef = useRef(null);
+  const snatchSent = useRef(null); // key of the snatch window I already pressed in (the press is sealed: no event)
 
   useEffect(() => {
     presenterRef.current = presenter;
@@ -82,8 +78,12 @@ export function useOnlineGame(code, { getOptions = tycoonGetOptions, standings =
     [clearAwaiting],
   );
 
-  const conn = useRoomConnection(code, { onState, onChat: (entry) => playEmote(entry.emote) });
+  const conn = useRoomConnection(code, { onState });
   const { room, view, chat, connection, send, leave, fatal, error, errorId } = conn;
+  useEffect(() => {
+    viewRef.current = view;
+    if (!view || view.phase !== 'snatch') snatchSent.current = null; // the window is over: the next one starts fresh
+  }, [view]);
 
   // a rejected action or a dropped connection releases the "waiting for the server" lock
   useEffect(() => {
@@ -96,6 +96,14 @@ export function useOnlineGame(code, { getOptions = tycoonGetOptions, standings =
   const dispatch = useCallback(
     (action) => {
       if (!action || typeof action !== 'object' || !me) return;
+      if (action.type === 'SNATCH') {
+        // Real-time window, sealed press: ignore animations and pending requests, but never press twice.
+        const v = viewRef.current;
+        const key = v && v.pending ? `${v.pending.tile}:${v.pending.buyer}:${v.round}:${v.turn}` : 'snatch';
+        if (snatchSent.current === key) return;
+        if (send({ t: 'action', action: { ...action, playerId: me } }, { queue: false })) snatchSent.current = key;
+        return;
+      }
       if (busyRef.current || awaitingRef.current) return;
       const ok = send({ t: 'action', action: { ...action, playerId: me } }, { queue: false });
       if (!ok) return;
@@ -133,9 +141,8 @@ export function useOnlineGame(code, { getOptions = tycoonGetOptions, standings =
         real = null;
       }
     }
-    // all action keys (including the rules-v2 ones) are blank while animating, awaiting the server, or offline
-    if (!real || busy || awaiting || connection !== 'open') return blankOptions(real);
-    return real;
+    // blank while animating / awaiting the server / offline, except the snatch buttons (see gateOptions)
+    return gateOptions(real, view, { busy, awaiting, connection });
   }, [view, me, busy, awaiting, connection, getOptions]);
 
   // Only after the win presentation finished: the presenter has snapped `display` to the final state.

@@ -11,3 +11,5 @@ output/playwright/
 
 # Google OAuth client secret downloads (never commit)
 client_secret*.json
+
+.vitest/

@@ -115,8 +115,6 @@ const here = () => globalThis.location?.origin ?? '';
 export function joinLink(code, origin = here()) {
   return `${origin}${paths.join(code)}`;
 }
-/** Older name for `joinLink`. */
-export const lobbyLink = joinLink;
 
 /** A room invite as two short lines (`text`) plus the link (`url`), so Web Share can use them separately. */
 export function inviteMessage(code, gameName, origin) {

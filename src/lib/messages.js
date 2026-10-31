@@ -8,16 +8,37 @@
 //   round?: number,           // round shown BEFORE this event (turn events log only when it increases)
 //   maxRounds?: number|null,  // flags the final round
 //   jailTurns?: number,       // length of a jail stay (defaults to 1)
+//   tile?: number,            // the square being played (names the tax a 'tax' payment belongs to)
 // }
 //
 // tone: 'info' | 'good' | 'bad' | 'warn' | 'cheer'. Optional extras: `bubble` is a shorter text for the
 // bubble; `extra` ({ text, tone, icon }) is a second, log-only line (lucky-dice help).
 // Events that need no line (plain moves, the receiving half of a rent payment, ...) return null.
 
-import { TILES, LEVEL_NAMES, MAX_LEVEL, GROUPS } from '@shared/board.js';
+import { TILES, LEVEL_NAMES, MAX_LEVEL, GROUPS, JAIL_TILE } from '@shared/board.js';
 import { formatINR } from '@shared/format.js';
 
 const tileName = (id) => (TILES[id] ? TILES[id].name : `tile ${id}`);
+
+/** Short deck name for a card event: "Farman" (Nawab ka Farman) or "Khazana" (Hyderabadi Khazana). */
+const deckShort = (deck) => TILES.find((t) => t.type === 'kismet' && t.deck === deck)?.short || null;
+
+/** "A", "A and B", "A, B and C": names of several players. */
+function nameList(ctx, ids) {
+  const names = (Array.isArray(ids) ? ids : []).map((id) => playerName(ctx, id));
+  if (names.length <= 1) return names[0] || 'Someone';
+  return `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
+}
+
+/** The buyer as the object of a sentence: "you" or the name. */
+const objName = (ctx, id) => (isMe(ctx, id) ? 'you' : playerName(ctx, id));
+
+/** What a tax payment was for. The event may carry `tile`; otherwise the square being played tells. */
+function taxLabel(ev, ctx) {
+  const t = TILES[ev.tile] && TILES[ev.tile].type === 'tax' ? TILES[ev.tile] : ctx && TILES[ctx.tile] && TILES[ctx.tile].type === 'tax' ? TILES[ctx.tile] : null;
+  if (!t) return { text: 'tax', tile: undefined };
+  return { text: t.taxPercent ? 'GHMC property tax' : `for the ${t.name}`, tile: t.id };
+}
 
 function playerName(ctx, id) {
   if (id === null || id === undefined) return 'Someone';
@@ -51,16 +72,18 @@ function describeCash(ev, ctx) {
       else if (isMe(ctx, ev.other)) tone = 'good';
       return { text: `${who} paid ${amt} rent${to}`, tone, icon: '🏠' };
     }
-    case 'tax':
-      return { text: `${who} paid ${amt} property tax`, tone: toneFor(ctx, ev.player, 'bad'), icon: '🧾' };
-    case 'film':
-      return ev.delta >= 0
-        ? { text: `${who} earned ${amt} for a Film City cameo`, tone: toneFor(ctx, ev.player, 'good'), icon: '🎬' }
-        : { text: `${who} paid ${amt} at Film City`, tone: toneFor(ctx, ev.player, 'bad'), icon: '🎬' };
+    case 'tax': {
+      const tax = taxLabel(ev, ctx);
+      return { text: `${who} paid ${amt} ${tax.text}`, tone: toneFor(ctx, ev.player, 'bad'), tile: tax.tile, icon: '🧾' };
+    }
     case 'bail':
       return { text: `${who} paid ${amt} bail`, tone: toneFor(ctx, ev.player, 'warn'), icon: '🔓' };
-    case 'bazaar':
-      return { text: `${who} got a ${amt} Laad Bazaar bonus`, tone: toneFor(ctx, ev.player, 'good'), icon: '🔨' };
+    case 'event':
+      return {
+        text: ev.delta >= 0 ? `Festival gift: ${who} received ${amt}` : `${who} paid ${amt} (city event)`,
+        tone: toneFor(ctx, ev.player, ev.delta >= 0 ? 'good' : 'bad'),
+        icon: '🎁',
+      };
     case 'buy':
     case 'upgrade':
     case 'auction':
@@ -86,16 +109,13 @@ function describeJail(ev, ctx) {
     const n = Math.max(1, Math.round(Number(ctx && ctx.jailTurns) || 1));
     const stay = `${who} ${be(ctx, ev.player)} in jail for ${plural(n, 'round')}`;
     let text = stay;
-    if (ev.reason === 'three_doubles') text = `Three doubles in a row! ${stay}`;
-    else if (ev.reason === 'three_sixes') text = `Three sixes in a row! ${stay}`;
-    else if (ev.reason === 'card') text = `Kismet strikes! ${stay}`;
-    return { text, tone: toneFor(ctx, ev.player, 'bad', 'warn'), tile: 14, icon: '🚔' };
+    if (ev.reason === 'card') text = `The card says go to jail! ${stay}`;
+    else if (/go.?to.?jail|signal|tile/i.test(String(ev.reason || ''))) text = `Caught at a signal without a helmet! ${stay}`;
+    return { text, tone: toneFor(ctx, ev.player, 'bad', 'warn'), tile: JAIL_TILE, icon: '🚔' };
   }
   switch (ev.reason) {
     case 'six':
       return { text: `${who} rolled a six and broke out of jail`, tone: toneFor(ctx, ev.player, 'good'), icon: '🔓' };
-    case 'doubles':
-      return { text: `${who} rolled doubles and broke out of jail`, tone: toneFor(ctx, ev.player, 'good'), icon: '🔓' };
     case 'bail':
       return { text: `${who} walked free after paying bail`, tone: toneFor(ctx, ev.player, 'good'), icon: '🔓' };
     case 'served':
@@ -182,13 +202,11 @@ export function describeEvent(ev, ctx) {
   try {
     switch (ev.type) {
       case 'dice': {
-        const [a, b] = ev.values || [];
-        const single = ev.values?.length === 1;
-        const dbl = !single && a === b;
-        const six = single && a === 6;
+        const a = (ev.values || [])[0]; // one die, always
+        const six = a === 6;
         const d = {
-          text: single ? `${playerName(ctx, ev.player)} rolled ${a}${six ? ': six!' : ''}` : `${playerName(ctx, ev.player)} rolled ${a} + ${b}${dbl ? ': doubles!' : ''}`,
-          tone: dbl || six ? toneFor(ctx, ev.player, 'good') : 'info',
+          text: `${playerName(ctx, ev.player)} rolled ${a}${six ? ': six!' : ''}`,
+          tone: six ? toneFor(ctx, ev.player, 'good') : 'info',
           icon: '🎲',
         };
         // A second, log-only line when the lucky-dice rules helped the local player.
@@ -197,7 +215,8 @@ export function describeEvent(ev, ctx) {
       }
 
       case 'move':
-        return ev.teleport
+        // A trip to jail is told by the jail event that follows, so the jump itself stays quiet.
+        return ev.teleport && ev.to !== JAIL_TILE
           ? { text: `${playerName(ctx, ev.player)} zipped to ${tileName(ev.to)}`, tone: 'info', tile: ev.to, icon: '✨' }
           : null;
 
@@ -205,8 +224,13 @@ export function describeEvent(ev, ctx) {
         const tile = TILES[ev.tile];
         const who = playerName(ctx, ev.player);
         const own = ctx.owners && ctx.owners[ev.tile] === ev.player && tile && tile.price;
+        let text = `${who} landed on ${tileName(ev.tile)}`;
+        if (own) text = `${who} ${be(ctx, ev.player)} back on ${isMe(ctx, ev.player) ? 'your' : 'their'} own ${tileName(ev.tile)}`;
+        else if (tile && tile.type === 'jail') text = `${who} ${be(ctx, ev.player)} just visiting ${tileName(ev.tile)}`;
+        else if (tile && tile.type === 'parking') text = `${who} stopped for an Irani chai and biryani. Nothing happens`;
+        else if (tile && tile.type === 'gotojail') text = `${who} landed on Go to Jail`;
         return {
-          text: own ? `${who} ${be(ctx, ev.player)} back on ${isMe(ctx, ev.player) ? 'your' : 'their'} own ${tileName(ev.tile)}` : `${who} landed on ${tileName(ev.tile)}`,
+          text,
           tone: 'info',
           tile: ev.tile,
           icon: tile ? tile.emoji : undefined,
@@ -235,7 +259,7 @@ export function describeEvent(ev, ctx) {
             icon: '📉',
           };
         }
-        return null; // auction (auction_end tells it) and bankrupt (bankrupt tells it)
+        return null; // auction / snatch (auction_end and snatch_end tell it) and bankrupt (bankrupt tells it)
       }
 
       case 'level': {
@@ -279,7 +303,7 @@ export function describeEvent(ev, ctx) {
             ? `${who} ${be(ctx, ev.player)} in jail for ${plural(left, 'more round')}`
             : `${who} missed a turn in jail`,
           tone: toneFor(ctx, ev.player, 'warn'),
-          tile: 14,
+          tile: JAIL_TILE,
           icon: '🚔',
         };
       }
@@ -287,8 +311,9 @@ export function describeEvent(ev, ctx) {
       case 'card': {
         const me = isMe(ctx, ev.player);
         const tone = !me ? 'info' : ev.kind === 'good' ? 'good' : ev.kind === 'bad' ? 'bad' : 'info';
+        const deck = deckShort(ev.deck);
         return {
-          text: me ? `${ev.title}: ${ev.text}` : `${playerName(ctx, ev.player)} drew "${ev.title}"`,
+          text: me ? `${ev.title}: ${ev.text}` : `${playerName(ctx, ev.player)} drew ${deck ? `a ${deck} card: ` : ''}"${ev.title}"`,
           tone,
           icon: '🎴',
           title: ev.title,
@@ -296,6 +321,8 @@ export function describeEvent(ev, ctx) {
       }
 
       case 'auction_start':
+        // Snatch bidding is announced by the snatch_end line ("... both snatched! Sealed bidding for ...").
+        if (ev.reason === 'snatch') return null;
         return {
           text: `Auction! ${tileName(ev.tile)} is up for bids (min ${formatINR(ev.minBid)})`,
           tone: 'info',
@@ -304,16 +331,116 @@ export function describeEvent(ev, ctx) {
         };
 
       case 'auction_end': {
+        const snatch = ev.reason === 'snatch';
         if (ev.winner === null || ev.winner === undefined) {
+          if (snatch) {
+            const buyer = ev.buyer ?? (ctx.owners ? ctx.owners[ev.tile] : null);
+            const keeper = buyer === null || buyer === undefined ? 'its buyer' : objName(ctx, buyer);
+            return { text: `Nobody bid. ${tileName(ev.tile)} stays with ${keeper}.`, tone: 'info', tile: ev.tile, icon: '⚡' };
+          }
           return { text: `No bids. ${tileName(ev.tile)} stays with the bank`, tone: 'info', tile: ev.tile, icon: '🔨' };
         }
         return {
-          text: `${playerName(ctx, ev.winner)} won ${tileName(ev.tile)} at auction for ${formatINR(ev.amount)}`,
+          text: `${playerName(ctx, ev.winner)} won ${tileName(ev.tile)} ${snatch ? 'in the snatch bidding' : 'at auction'} for ${formatINR(ev.amount)}`,
           tone: toneFor(ctx, ev.winner, 'good'),
           tile: ev.tile,
-          icon: '🔨',
+          icon: snatch ? '⚡' : '🔨',
         };
       }
+
+      case 'snatch_open': {
+        const secs = Math.max(1, Math.round((Number(ev.ms) || 3000) / 1000));
+        const price = ev.price ?? (TILES[ev.tile] ? TILES[ev.tile].price : 0);
+        const eligibleMe = Array.isArray(ev.eligible) && ctx.me !== undefined && ev.eligible.includes(ctx.me);
+        return {
+          text: `${playerName(ctx, ev.buyer)} bought ${tileName(ev.tile)} for ${formatINR(price)}. Snatch window open (${secs}s)!`,
+          bubble: eligibleMe ? 'Snatch it!' : `Snatch window (${secs}s)`,
+          tone: eligibleMe ? 'warn' : 'info',
+          tile: ev.tile,
+          icon: '⚡',
+        };
+      }
+
+      case 'snatch_end': {
+        const claimants = Array.isArray(ev.claimants) ? ev.claimants : [];
+        if (ev.outcome === 'snatched' && ev.winner !== null && ev.winner !== undefined) {
+          const price = ev.price ?? (TILES[ev.tile] ? TILES[ev.tile].price : 0);
+          const bought = isMe(ctx, ev.buyer) ? 'You' : playerName(ctx, ev.buyer);
+          return {
+            text: `${playerName(ctx, ev.winner)} SNATCHED ${tileName(ev.tile)} from ${objName(ctx, ev.buyer)} for free! (${bought} still paid ${formatINR(price)})`,
+            bubble: `${playerName(ctx, ev.winner)} snatched it!`,
+            tone: isMe(ctx, ev.winner) ? 'cheer' : toneFor(ctx, ev.buyer, 'bad'),
+            tile: ev.tile,
+            icon: '⚡',
+          };
+        }
+        if (ev.outcome === 'bidding') {
+          const all = claimants.length > 2;
+          return {
+            text: `${nameList(ctx, claimants)} ${all ? 'all' : 'both'} snatched! Sealed bidding for ${tileName(ev.tile)}.`,
+            bubble: 'Snatch bidding!',
+            tone: claimants.includes(ctx.me) ? 'warn' : 'info',
+            tile: ev.tile,
+            icon: '⚡',
+          };
+        }
+        return {
+          text: `Nobody snatched. ${tileName(ev.tile)} stays with ${objName(ctx, ev.buyer)}.`,
+          tone: 'info',
+          tile: ev.tile,
+          icon: '⚡',
+        };
+      }
+
+      case 'shield':
+        return {
+          text: `${playerName(ctx, ev.player)} shielded ${tileName(ev.tile)}: no snatching!`,
+          bubble: 'Shielded!',
+          tone: toneFor(ctx, ev.player, 'good'),
+          tile: ev.tile,
+          icon: '🛡️',
+        };
+
+      case 'trap_placed':
+        return {
+          text: isMe(ctx, ev.player) ? 'You set a trap. Shhh.' : `${playerName(ctx, ev.player)} set a trap somewhere...`,
+          bubble: isMe(ctx, ev.player) ? 'Trap set. Shhh.' : 'A trap was set...',
+          tone: isMe(ctx, ev.player) ? 'info' : 'warn',
+          icon: '🪤',
+        };
+
+      case 'trap_sprung': {
+        const owner = isMe(ctx, ev.owner) ? 'your' : `${playerName(ctx, ev.owner)}'s`;
+        return {
+          text: `${playerName(ctx, ev.victim)} walked into ${owner} trap on ${tileName(ev.tile)} and ${isMe(ctx, ev.victim) ? 'were' : 'was'} thrown in jail!`,
+          bubble: isMe(ctx, ev.victim) ? 'Trapped!' : isMe(ctx, ev.owner) ? 'Your trap sprang!' : 'Trap sprung!',
+          tone: isMe(ctx, ev.victim) ? 'bad' : isMe(ctx, ev.owner) ? 'good' : 'info',
+          tile: ev.tile,
+          icon: '🪤',
+        };
+      }
+
+      case 'token_earned': {
+        const why = ev.reason === 'chai' ? 'Chai break' : 'lap bonus';
+        return {
+          text: `${playerName(ctx, ev.player)} earned a Snatch token (${why})`,
+          bubble: '+1 Snatch token',
+          tone: toneFor(ctx, ev.player, 'good'),
+          icon: '⚡',
+        };
+      }
+
+      case 'city_event':
+        return {
+          text: `${ev.title} ${ev.text}`,
+          bubble: ev.title,
+          tone: ev.kind === 'good' ? 'good' : ev.kind === 'bad' ? 'warn' : 'cheer',
+          icon: '🌆',
+          title: ev.title,
+        };
+
+      case 'snatch_token':
+        return null; // the scoreboard shows the token count; snatch_end already told the story
 
       case 'bankrupt':
         return {

@@ -20,13 +20,11 @@ const { default: JoinRoom } = await import('@/pages/JoinRoom.jsx');
 const { default: Lobby } = await import('@/pages/Lobby.jsx');
 const { default: OnlineGame } = await import('@/pages/OnlineGame.jsx');
 const { default: SettingsPanel, SettingField } = await import('./SettingsPanel.jsx');
-const { default: PlayerRow } = await import('./PlayerRow.jsx');
+const { default: Seat, EmptySeat } = await import('./Seat.jsx');
 const { default: ShareCard } = await import('./ShareCard.jsx');
 const { default: CodeInput } = await import('./CodeInput.jsx');
 const { default: ConfirmDialog } = await import('./ConfirmDialog.jsx');
 const { default: GameIcon } = await import('./GameIcon.jsx');
-const { default: VisibilityBadge } = await import('./VisibilityBadge.jsx');
-const { default: VisibilityPicker } = await import('./VisibilityPicker.jsx');
 const { default: InviteToGameSheet } = await import('./InviteToGameSheet.jsx');
 const { InviteBanner, noticeContent } = await import('./InviteBanner.jsx');
 const { getGame } = await import('@/games/registry.js');
@@ -75,11 +73,11 @@ describe('Login', () => {
     expect(html).toContain('Google login is not configured yet');
     expect(html).toContain('Play as guest');
   });
-  it('server unreachable: clear state with retry and offline play', () => {
+  it('server unreachable: clear state with retry', () => {
     const html = page('/login', h(Login), { reachable: false });
     expect(html).toContain('reach the game server');
     expect(html).toContain('Try again');
-    expect(html).toContain('/games/hyderabad-tycoon/play');
+    expect(html).not.toContain('Play offline');
     expect(html).not.toContain('Play as guest');
   });
   it('loading shows a status instead of the form', () => {
@@ -144,13 +142,12 @@ describe('FriendLink', () => {
 });
 
 describe('JoinRoom', () => {
-  it('returns a signed-in host to room creation after authentication, with a game picker', () => {
+  it('has no host-a-table path of its own: creating a table happens on the game page', () => {
     const html = page('/join?host=1', h(JoinRoom), { user: guest });
-    expect(html).toContain('Create private room');
-    expect(html).toContain('Share your six-character code');
-    expect(html).toContain('Pick a game');
-    expect(html).toContain('Hyderabad Tycoon');
-    expect(html).not.toContain('Enter the 6-character code');
+    expect(html).toContain('Enter the 6-character code');
+    expect(html).not.toContain('Pick a game');
+    expect(html).not.toContain('Create private room');
+    expect(html).toContain('/games/hyderabad-tycoon'); // "Want your own table? Create one."
   });
   it('shows the six boxes for a signed-in user', () => {
     const html = page('/join', h(JoinRoom), { user: guest });
@@ -206,28 +203,42 @@ const OTHER_GAME = {
 describe('SettingsPanel (schema renderer)', () => {
   const tycoon = getGame('hyderabad-tycoon');
   const settings = { goal: 70000, startCash: 15000, maxRounds: 50, dice: 'lucky', auctionOnDecline: true };
-  const props = { game: tycoon, settings, maxPlayers: 4, playerCount: 2, onSend() {}, onMaxPlayers() {}, errorId: 0 };
+  const props = { game: tycoon, settings, onSend() {}, errorId: 0 };
 
-  it("host sees one control per field of the game's own schema", () => {
+  it('the first game shows only its end-cash limit: quick picks, a custom stepper, one summary line', () => {
+    expect(tycoon.lobbySettings).toEqual(['goal']);
     const html = renderToString(h(SettingsPanel, { ...props, isHost: true }));
-    for (const f of tycoon.settings) expect(html, f.label).toContain(f.label.replace(/&/g, '&amp;'));
-    expect(html).toContain('role="switch"');
-    expect(html).toContain('role="radio"');
+    expect(html).toContain('End cash limit');
     expect(html).toContain('Custom'); // stepper with quick picks
-    expect(html).toContain('Max players');
-    expect(html).toContain(tycoon.summarize(settings));
+    expect(html).toContain('role="radio"'); // the quick picks
+    expect(html).toContain('First to reach ₹70,000 wins');
+    for (const hidden of ['Rounds', 'Start cash', 'Dice', 'Auction skipped']) expect(html, hidden).not.toContain(hidden);
+    expect(html).not.toContain('role="switch"');
+    expect(html).not.toContain('Max players'); // seats are chosen on the game page, not here
+    expect(html).toContain('Table rules');
+    expect(html).toContain('Single die - 1 Snatch each - sealed bidding on a tie');
+    expect(html).not.toContain('>Game settings<'); // a single field is its own title
     expect(html).not.toContain('Hyderabad Tycoon'); // the panel itself carries no game name
   });
-  it('non-host sees summarize() and read-only chips, no controls', () => {
-    const html = renderToString(h(SettingsPanel, { ...props, isHost: false, settings: { ...settings, maxRounds: null, dice: 'fair' } }));
-    expect(html).toContain(tycoon.summarize({ ...settings, maxRounds: null, dice: 'fair' }));
-    expect(html).toContain('Up to 4 players');
-    expect(html).toContain('ho-chip--static');
+  it('a game without lobbySettings shows every setting of its schema', () => {
+    const all = { ...tycoon, lobbySettings: undefined };
+    const html = renderToString(h(SettingsPanel, { ...props, game: all, isHost: true }));
+    for (const f of tycoon.settings) expect(html, f.label).toContain(f.label.replace(/&/g, '&amp;'));
+    expect(html).toContain('role="switch"');
+    expect(html).toContain('>Game settings<');
+  });
+  it('non-host sees the one-line summary and "set by the host", no controls', () => {
+    const html = renderToString(h(SettingsPanel, { ...props, isHost: false, settings: { ...settings, goal: 100000, maxRounds: null, dice: 'fair' } }));
+    expect(html).toContain('First to reach ₹1,00,000 wins');
+    expect(html).toContain('Set by the host');
+    expect(html).toContain('Single die - 1 Snatch each - sealed bidding on a tie');
+    expect(html).not.toContain('ho-chip');
+    expect(html).not.toContain('Rounds');
     expect(html).not.toContain('role="radio"');
     expect(html).not.toContain('role="switch"');
   });
   it('renders a completely different game: wrapped chips for many options, a number stepper, a toggle', () => {
-    const html = renderToString(h(SettingsPanel, { ...props, game: OTHER_GAME, settings: { mode: 'two', time: 40, hints: true }, isHost: true, maxPlayers: 5 }));
+    const html = renderToString(h(SettingsPanel, { ...props, game: OTHER_GAME, settings: { mode: 'two', time: 40, hints: true }, isHost: true }));
     expect(html).toContain('Mode three');
     expect(html).toContain('ho-chip'); // 5 options => chips, not a pill row
     expect(html).toContain('Seconds per turn');
@@ -235,13 +246,13 @@ describe('SettingsPanel (schema renderer)', () => {
     expect(html).toContain('Time to think.');
     expect(html).toContain('aria-checked="true"');
     expect(html).toContain('two · 40s');
-    expect(html).toContain('>5<'); // max players stepper, within 2..8
+    expect(html).not.toContain('Table rules'); // this game has none
   });
-  it('a game without settings still shows the max-players stepper to the host and a calm summary to others', () => {
+  it('a game without settings shows a calm summary to others and no controls to anyone', () => {
     const none = { id: 'bare', name: 'Bare', players: { min: 2, max: 4 } };
-    expect(renderToString(h(SettingsPanel, { ...props, game: none, isHost: true }))).toContain('Max players');
+    expect(renderToString(h(SettingsPanel, { ...props, game: none, isHost: true }))).not.toContain('role="radio"');
     expect(renderToString(h(SettingsPanel, { ...props, game: none, isHost: false }))).toContain('has not changed anything');
-    expect(renderToString(h(SettingsPanel, { ...props, game: null, isHost: false }))).toContain('Up to 4 players');
+    expect(renderToString(h(SettingsPanel, { ...props, game: null, isHost: false }))).toContain('has not changed anything');
   });
   it('SettingField covers all three types', () => {
     const seg = renderToString(h(SettingField, { field: OTHER_GAME.settings[0], value: 'one', onChange() {}, onStep() {} }));
@@ -253,31 +264,23 @@ describe('SettingsPanel (schema renderer)', () => {
   });
 });
 
-describe('visibility', () => {
-  it('badge says Public or Private', () => {
-    expect(renderToString(h(VisibilityBadge, { visibility: 'public' }))).toContain('Public');
-    expect(renderToString(h(VisibilityBadge, { visibility: 'private' }))).toContain('Private');
-    expect(renderToString(h(VisibilityBadge, {}))).toContain('Private');
-  });
-  it('host picker explains that public rooms appear in Open tables', () => {
-    const pub = renderToString(h(VisibilityPicker, { visibility: 'public', onPick() {} }));
-    expect(pub).toContain('Public rooms appear in Open tables');
-    expect(pub).toContain('role="radiogroup"');
-    const priv = renderToString(h(VisibilityPicker, { visibility: 'private', onPick() {} }));
-    expect(priv).toContain('Private rooms need the code or link');
-  });
-});
-
 describe('small components', () => {
-  it('PlayerRow tags: host, you, bot; kick button label', () => {
-    const p = { id: 'a', name: 'Anil', avatar: 1, ready: true, connected: true, isBot: false };
-    const html = renderToString(h(PlayerRow, { player: p, isHost: true, isMe: true, canRemove: false }));
+  it('Seat: avatar, name, host and you tags, remove button label; no ready state', () => {
+    const p = { id: 'a', name: 'Anil', avatar: 1, ready: true, connected: true };
+    const html = renderToString(h(Seat, { player: p, isHost: true, isMe: true, canRemove: false }));
     expect(html).toContain('Anil');
     expect(html).toContain('Host');
     expect(html).toContain('You');
-    const bot = renderToString(h(PlayerRow, { player: { ...p, id: 'bot_1', name: 'Chai Uncle', isBot: true }, canRemove: true, onRemove() {} }));
-    expect(bot).toContain('Bot');
-    expect(bot).toContain('Remove bot Chai Uncle');
+    expect(html).not.toMatch(/ready/i);
+    expect(html).not.toContain('Remove');
+    const other = renderToString(h(Seat, { player: { ...p, id: 'b', name: 'Bela', connected: false }, canRemove: true, onRemove() {} }));
+    expect(other).toContain('Remove Bela from the room');
+    expect(other).toContain('Reconnecting');
+  });
+  it('EmptySeat waits for a player', () => {
+    const html = renderToString(h(EmptySeat));
+    expect(html).toContain('Waiting for player...');
+    expect(html).toContain('Open seat');
   });
   it('ShareCard: big code, join link, WhatsApp text naming the game, QR svg', () => {
     const html = renderToString(h(ShareCard, { code: 'ABC234', gameName: 'Ludo Lanes' }));

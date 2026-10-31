@@ -1,6 +1,6 @@
 // Bottom sheet (mobile) / side drawer or centred modal (desktop) / centred dialog (always).
 // Focus trap, Esc, backdrop tap, swipe-down to dismiss on touch layouts, exit animation.
-import { useEffect, useId, useRef, useState, useSyncExternalStore } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import Icon from './Icon.jsx';
 import { useReducedMotion } from './helpers.js';
@@ -11,15 +11,8 @@ const FOCUSABLE =
 const stack = []; // open dialog elements, topmost last
 const visible = (el) => el.getClientRects().length > 0;
 
-const listeners = new Set();
-const notify = () => listeners.forEach((cb) => cb());
-const subscribe = (cb) => { listeners.add(cb); return () => listeners.delete(cb); };
-
 /** True while any game sheet/dialog is open (keyboard shortcuts stand down). */
 export const hasOpenSheet = () => stack.length > 0;
-
-/** Reactive version: lets the voice toast tuck itself away while a sheet's scrim is up. */
-export const useSheetOpen = () => useSyncExternalStore(subscribe, hasOpenSheet, () => false);
 
 /**
  * variant: 'sheet' (bottom sheet; on desktop it becomes `desktop`: 'drawer' | 'modal') | 'dialog' (centred everywhere)
@@ -61,7 +54,6 @@ export default function Sheet({
     let restore = false;
     try { restore = !!prev && prev !== document.body && prev.matches(':focus-visible'); } catch { restore = false; }
     stack.push(el);
-    notify();
     (el.querySelector('[data-autofocus]') || el).focus({ preventScroll: true });
     const onFocusIn = (e) => {
       if (stack[stack.length - 1] !== el || el.contains(e.target)) return;
@@ -72,7 +64,6 @@ export default function Sheet({
       document.removeEventListener('focusin', onFocusIn);
       const i = stack.indexOf(el);
       if (i >= 0) stack.splice(i, 1);
-      notify();
       if (restore && prev.isConnected && prev.focus) prev.focus({ preventScroll: true });
       else if (document.activeElement && el.contains(document.activeElement)) document.activeElement.blur?.();
     };

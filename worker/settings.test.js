@@ -92,9 +92,20 @@ describe('sanitizeSettings (strict, untrusted input)', () => {
   });
 });
 
+describe('snatch settings', () => {
+  it('accepts 0-3 tokens and a 1-10 s window, and reports anything else', () => {
+    expect(sanitizeSettings({ snatches: 0, snatchMs: 5000 }).settings).toEqual({ snatches: 0, snatchMs: 5000 });
+    expect(sanitizeSettings({ snatches: 3, snatchMs: 1000 }).errors).toEqual([]);
+    for (const bad of [{ snatches: -1 }, { snatches: 4 }, { snatches: 1.5 }, { snatches: '1' }, { snatchMs: 999 }, { snatchMs: 10001 }, { snatchMs: 'fast' }]) {
+      expect(sanitizeSettings(bad).errors).toHaveLength(1);
+      expect(sanitizeSettings(bad).settings).toEqual({});
+    }
+  });
+});
+
 describe('normalizeSettings', () => {
   it('fills the defaults: 70,000 / 15,000 / 50 rounds / lucky dice / auction on decline', () => {
-    const defaults = { goal: 70000, startCash: 15000, maxRounds: 50, dice: 'lucky', auctionOnDecline: true };
+    const defaults = { goal: 70000, startCash: 15000, maxRounds: 50, dice: 'lucky', auctionOnDecline: true, snatches: 1, snatchMs: 3000 };
     expect(ROOM_DEFAULTS).toEqual(defaults);
     expect(normalizeSettings(undefined)).toEqual(defaults);
     expect(normalizeSettings({})).toEqual(defaults);
@@ -107,13 +118,15 @@ describe('normalizeSettings', () => {
       maxRounds: null,
       dice: 'fair',
       auctionOnDecline: true,
+      snatches: 1,
+      snatchMs: 3000,
     });
   });
 
   it('drops invalid values back to the defaults', () => {
     expect(
       normalizeSettings({ goal: 1, startCash: 'lots', maxRounds: Infinity, dice: 'x', auctionOnDecline: 'no', debug: true }),
-    ).toEqual({ goal: 70000, startCash: 15000, maxRounds: 50, dice: 'lucky', auctionOnDecline: true });
+    ).toEqual({ goal: 70000, startCash: 15000, maxRounds: 50, dice: 'lucky', auctionOnDecline: true, snatches: 1, snatchMs: 3000 });
   });
 
   it('returns a fresh object (the frozen defaults are never leaked or mutated)', () => {

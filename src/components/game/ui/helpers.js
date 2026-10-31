@@ -48,36 +48,59 @@ export function useHeld(value) {
 const transportIds = TILES.filter((t) => t.type === 'transport').map((t) => t.id);
 const utilityIds = TILES.filter((t) => t.type === 'utility').map((t) => t.id);
 
-/** Every "set" a player can own tiles in: the 6 colour groups + transport + utilities. */
+/** Every "set" a player can own tiles in: the 8 colour groups + stations (kind 'transport') + utilities. */
 export const SET_GROUPS = [
   ...Object.values(GROUPS).map((g) => ({
-    id: g.id, kind: 'property', name: g.name, te: g.te, color: g.color, ink: g.ink, tiles: GROUP_TILES[g.id],
+    id: g.id, kind: 'property', name: g.name, color: g.color, ink: g.ink, tiles: GROUP_TILES[g.id],
   })),
-  { id: 'transport', kind: 'transport', name: 'Transport', te: 'రవాణా', color: '#14b8a6', ink: '#04201d', tiles: transportIds },
-  { id: 'utility', kind: 'utility', name: 'Utilities', te: 'యుటిలిటీలు', color: '#eab308', ink: '#251c00', tiles: utilityIds },
+  { id: 'transport', kind: 'transport', name: 'Stations', color: '#14b8a6', ink: '#04201d', tiles: transportIds },
+  { id: 'utility', kind: 'utility', name: 'Utilities', color: '#eab308', ink: '#251c00', tiles: utilityIds },
 ];
 
 export const setOfTile = (tile) =>
   SET_GROUPS.find((g) => (tile.group ? g.id === tile.group : g.id === tile.type)) || null;
 
+/** The two card decks behind the 'kismet' squares. */
+const deckInfo = (deck, fallback) => {
+  const t = TILES.find((x) => x.type === 'kismet' && x.deck === deck);
+  return t ? { name: t.name, short: t.short } : fallback;
+};
+export const KISMET_DECKS = {
+  chance: deckInfo('chance', { name: 'Nawab ka Farman', short: 'Farman' }),
+  chest: deckInfo('chest', { name: 'Hyderabadi Khazana', short: 'Khazana' }),
+};
+
+// Accent for the tiles that are not in a colour set (`kismet` is picked by deck).
 const CORNER_COLORS = {
-  start: ['#3b2d8f', '#ffffff'], jail: ['#4b5563', '#ffffff'], auction: ['#7c3aed', '#ffffff'],
-  kismet: ['#be185d', '#ffffff'], tax: ['#b45309', '#ffffff'], film: ['#0e7490', '#ffffff'],
+  start: ['#3b2d8f', '#ffffff'], jail: ['#4b5563', '#ffffff'], parking: ['#0e7490', '#ffffff'],
+  gotojail: ['#b91c1c', '#ffffff'], tax: ['#b45309', '#ffffff'],
+  kismet: ['#be185d', '#ffffff'], 'kismet:chest': ['#0f766e', '#ffffff'],
 };
 
 /** Header colour + readable ink for a tile. */
 export function tileAccent(tile) {
   const set = setOfTile(tile);
   if (set) return { color: set.color, ink: set.ink };
-  const [color, ink] = CORNER_COLORS[tile.type] || ['#3b2d8f', '#ffffff'];
+  const key = tile.type === 'kismet' && tile.deck === 'chest' ? 'kismet:chest' : tile.type;
+  const [color, ink] = CORNER_COLORS[key] || ['#3b2d8f', '#ffffff'];
   return { color, ink };
 }
 
-/** Tile ids owned by `playerId`. */
-export function ownedBy(owners, playerId) {
-  const out = [];
-  for (let i = 0; i < TILES.length; i++) if (owners?.[i] === playerId) out.push(i);
-  return out;
+/** Short kind label for a tile: its colour group, "Station", "Utility", the card deck, "Tax", ... */
+export function tileTypeLabel(tile) {
+  if (!tile) return '';
+  if (tile.group && GROUPS[tile.group]) return GROUPS[tile.group].name;
+  switch (tile.type) {
+    case 'start': return 'Start';
+    case 'transport': return 'Station';
+    case 'utility': return 'Utility';
+    case 'kismet': return (KISMET_DECKS[tile.deck] || KISMET_DECKS.chance).name;
+    case 'tax': return 'Tax';
+    case 'jail': return 'Jail';
+    case 'parking': return 'Rest stop';
+    case 'gotojail': return 'Go to Jail';
+    default: return 'Property';
+  }
 }
 
 /** Per-set progress for a player: [{ set, owned:[ids], total, full, missing:[ids] }] (sets with >= 1 owned tile only). */
@@ -134,7 +157,7 @@ export function previewRentSafe(state, tileId, sum = 7) {
   try { return Engine.previewRent(state, tileId, sum) || 0; } catch { return 0; }
 }
 
-/** number[28] landing probabilities for my next roll, or null when the engine can't say. */
+/** number[BOARD_SIZE] landing probabilities for my next roll, or null when the engine can't say. */
 export function landingOddsSafe(view, playerId) {
   try {
     if (typeof Engine.landingOdds !== 'function') return null;
@@ -149,7 +172,7 @@ export function landingOddsSafe(view, playerId) {
 export const diceLabel = (cfg) => ((cfg?.dice ?? 'lucky') === 'fair' ? '⚖️ Fair dice' : '🍀 Lucky dice');
 
 export const LUCKY_DICE_TEXT =
-  'Lucky dice gently help whoever is behind: slightly better odds of landing on useful tiles, a little protection after big rent bills, and fewer long dry spells without a bonus roll. Nothing is guaranteed. The host can switch to Fair dice.';
+  'Lucky dice gently help whoever is behind: slightly better odds of landing on useful tiles, a little protection after big rent bills, and fewer long dry spells without a bonus roll. Nothing is guaranteed.';
 export const FAIR_DICE_TEXT = 'Fair dice: every roll is pure chance, with no help for anyone.';
 
 export function worthOf(state, id) {
@@ -224,8 +247,8 @@ export function settingsSummary(cfg, goal) {
   return parts.join(' · ');
 }
 
+/** The die on the table (the game has one die). Before the first roll: 4, the usual guess for a utility's rent. */
 export const diceSum = (session) => {
-  const single = (session.display?.cfg || session.view?.cfg)?.diceCount === 1;
   const d = session.display?.dice || session.view?.dice || [];
-  return d.reduce((sum, value) => sum + (Number(value) || 0), 0) || (single ? 4 : 7);
+  return d.reduce((sum, value) => sum + (Number(value) || 0), 0) || 4;
 };

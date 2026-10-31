@@ -103,7 +103,7 @@ export function roomRow(room) {
     playerCount: room.players.length,
     maxPlayers: room.maxPlayers,
     settings: room.settings || {},
-    memberIds: room.players.filter((p) => !p.isBot && !p.left && isUuid(p.id)).map((p) => p.id),
+    memberIds: room.players.filter((p) => !p.left && isUuid(p.id)).map((p) => p.id),
     createdAt: room.createdAt,
   };
 }

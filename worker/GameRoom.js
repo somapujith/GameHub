@@ -3,11 +3,11 @@
 // (worker/games/<id>.js, see worker/games/index.js); this class only knows about seats, timers,
 // sockets and persistence.
 //
-// Lobby: players join over WS, ready up, the host edits settings and visibility, adds/removes
-// bots, kicks, starts (>= adapter.minPlayers). Game: the server owns the game state; clients only
-// send intents (`{t:'action'}`), the server forces `playerId`, applies them through the adapter
-// and broadcasts the result. Bots, idle humans (45 s) and disconnected humans (15 s grace) are
-// driven by DO alarms. The whole room record lives in DO storage, so eviction/hibernation is safe.
+// Lobby: players join over WS, ready up, the host edits settings and visibility, kicks, starts
+// (>= adapter.minPlayers). Every seat is a real player: there are no bots.
+// Game: the server owns the game state; clients only send intents (`{t:'action'}`), the server forces `playerId`, applies them through the adapter
+// and broadcasts the result. Idle players (45 s) and disconnected players (15 s grace) are
+// played on their behalf by DO alarms. The whole room record lives in DO storage, so eviction/hibernation is safe.
 // A listing row in the `rooms` table is kept in step on a best-effort basis (never breaks a room).
 import { DurableObject } from 'cloudflare:workers';
 import { getAdapter, DEFAULT_GAME_ID } from './games/index.js';
@@ -22,9 +22,12 @@ import {
 import { roomRow, rowSignature, upsertRoomRow, deleteRoomRow, hasDb, LISTING_HEARTBEAT_MS } from './roomsdb.js';
 import { sanitizeName, parseAvatar, sanitizeChat, sanitizeEmote, isUuid } from './validate.js';
 
+// Version of the stored room record. 3 = the 40-square Hyderabad board; a record below it still holds
+// a 28-tile game, which the game adapter's `upgradeRecord` calls off instead of resuming.
+export const ROOM_VERSION = 3;
 export const TURN_MS = 45_000; // human idle limit per decision
 export const GRACE_MS = 15_000; // disconnected human is auto-played after this
-const BOT_DELAY_MS = 900; // pause before an automated move (adapters may shorten it via moveDelayMs)
+const AUTO_MOVE_DELAY_MS = 900; // pause before an automated move (adapters may shorten it via moveDelayMs)
 const LOBBY_GRACE_MS = 60_000; // a disconnected lobby member is dropped after this
 const ROOM_TTL_MS = 24 * 60 * 60 * 1000;
 const ABANDON_MS = 5 * 60 * 1000; // nobody connected for this long -> stop playing the game
@@ -96,6 +99,7 @@ export class GameRoom extends DurableObject {
     r.deadlines ||= {};
     this.adapter = getAdapter(r.gameId);
     if (this.adapter && typeof this.adapter.upgradeRecord === 'function') this.adapter.upgradeRecord(r);
+    if ((r.v || 0) < ROOM_VERSION) r.v = ROOM_VERSION; // written back with the next save
   }
 
   async save() {
@@ -143,7 +147,21 @@ export class GameRoom extends DurableObject {
   /** What the state looks like to one viewer (the adapter hides secrets; same object = nothing hidden). */
   viewOf(userId) {
     const a = this.adapter;
-    return a && typeof a.redact === 'function' ? a.redact(this.room.state, userId) : this.room.state;
+    return this.withWindowClock(a && typeof a.redact === 'function' ? a.redact(this.room.state, userId) : this.room.state);
+  }
+
+  /**
+   * An open Snatch window tells each client how much of it is left (`pending.remainingMs`, of `pending.ms`), so a page
+   * that reloads or reconnects mid-window resumes the countdown instead of restarting it. Display only: the server
+   * timer (adapter.deadlines) decides when the window really closes.
+   */
+  withWindowClock(view) {
+    const r = this.room;
+    const p = view && view.pending;
+    if (!view || view.phase !== 'snatch' || !p || p.type !== 'snatch' || !Number.isFinite(p.ms)) return view;
+    const d = (typeof this.adapter.deadlines === 'function' ? this.adapter.deadlines(r.state) : [])[0];
+    const startedAt = d ? r.deadlines?.[d.key] ?? r.lastApplyAt + r.animMs : Date.now();
+    return { ...view, pending: { ...p, remainingMs: Math.max(0, Math.min(p.ms, startedAt + p.ms - Date.now())) } };
   }
 
   /** Settings as the lobby shows them (adapters may complete them with the engine's own defaults). */
@@ -168,9 +186,8 @@ export class GameRoom extends DurableObject {
         id: p.id,
         name: p.name,
         avatar: p.avatar,
-        ready: p.isBot ? true : !!p.ready,
-        connected: p.isBot ? true : connected.has(p.id),
-        isBot: !!p.isBot,
+        ready: !!p.ready,
+        connected: connected.has(p.id),
       })),
     };
   }
@@ -203,22 +220,18 @@ export class GameRoom extends DurableObject {
     return h ? h.name : null;
   }
 
-  humans() {
-    return this.room.players.filter((p) => !p.isBot);
-  }
-
-  /** Make sure the host is a present human (transfer if not). */
+  /** Make sure the host is a present player (transfer if not). */
   fixHost() {
     const r = this.room;
-    if (r.players.some((p) => p.id === r.hostId && !p.isBot)) return;
-    const next = r.players.find((p) => !p.isBot && !p.left);
+    if (r.players.some((p) => p.id === r.hostId)) return;
+    const next = r.players.find((p) => !p.left);
     r.hostId = next ? next.id : null;
   }
 
-  /** A lobby with no humans left is pointless: let it expire in ~10 minutes instead of 24 h. */
+  /** A lobby with no players left is pointless: let it expire in ~10 minutes instead of 24 h. */
   expireSoonIfEmpty() {
     const r = this.room;
-    if (r.status === 'lobby' && !r.players.some((p) => !p.isBot)) {
+    if (r.status === 'lobby' && r.players.length === 0) {
       r.lastActivity = Math.min(r.lastActivity, Date.now() - ROOM_TTL_MS + 10 * 60 * 1000);
     }
   }
@@ -246,7 +259,7 @@ export class GameRoom extends DurableObject {
     const r = this.room;
     if (!r || !hasDb(this.env)) return;
     const now = Date.now();
-    const empty = r.status === 'lobby' && !r.players.some((p) => !p.isBot);
+    const empty = r.status === 'lobby' && r.players.length === 0;
     const row = roomRow(r);
     const sig = empty ? 'empty' : rowSignature(row);
     if (!force && sig === this.listedSig && now - this.listedAt < LISTING_HEARTBEAT_MS) return;
@@ -290,7 +303,7 @@ export class GameRoom extends DurableObject {
     if (!init.ok) return json({ error: init.error }, 400);
     const now = Date.now();
     this.room = {
-      v: 2,
+      v: ROOM_VERSION,
       code,
       gameId: init.gameId,
       visibility: init.visibility,
@@ -304,7 +317,6 @@ export class GameRoom extends DurableObject {
           name: sanitizeName(host.name) || 'Player',
           avatar: parseAvatar(host.avatar) ?? 0,
           ready: true,
-          isBot: false,
           guest: !!host.guest,
         },
       ],
@@ -390,7 +402,7 @@ export class GameRoom extends DurableObject {
     if (!member) {
       if (r.status !== 'lobby') return this.rejectSocket(4003, 'This game has already started.');
       if (r.players.length >= r.maxPlayers) return this.rejectSocket(4003, 'This room is full.');
-      member = { id: userId, name, avatar, ready: false, isBot: false, guest };
+      member = { id: userId, name, avatar, ready: false, guest };
       r.players.push(member);
       if (!r.hostId) r.hostId = userId;
     } else {
@@ -471,10 +483,6 @@ export class GameRoom extends DurableObject {
         return this.onSettings(ws, isHost, msg);
       case 'visibility':
         return this.onVisibility(ws, isHost, msg);
-      case 'addBot':
-        return this.onAddBot(ws, isHost);
-      case 'removeBot':
-        return this.onRemoveBot(ws, isHost, msg);
       case 'kick':
         return this.onKick(ws, isHost, msg);
       case 'start':
@@ -550,42 +558,11 @@ export class GameRoom extends DurableObject {
     await this.scheduleAlarm();
   }
 
-  async onAddBot(ws, isHost) {
-    const r = this.room;
-    if (!isHost) return this.sendError(ws, 'Only the host can add bots.');
-    if (r.status !== 'lobby') return this.sendError(ws, 'Bots can only be added in the lobby.');
-    if (r.players.length >= r.maxPlayers) return this.sendError(ws, 'The room is full.');
-    const [rival] = this.adapter.rivals(1, r.players.map((p) => p.name));
-    r.players.push({
-      id: `bot_${randomId(6)}`,
-      name: rival.name,
-      avatar: rival.avatar,
-      ready: true,
-      isBot: true,
-      ...(rival.bot ? { bot: { ...rival.bot } } : {}),
-    });
-    this.touch();
-    await this.save();
-    this.broadcastRoom();
-  }
-
-  async onRemoveBot(ws, isHost, msg) {
-    const r = this.room;
-    if (!isHost) return this.sendError(ws, 'Only the host can remove bots.');
-    if (r.status !== 'lobby') return this.sendError(ws, 'Bots can only be removed in the lobby.');
-    const idx = r.players.findIndex((p) => p.isBot && p.id === msg.id);
-    if (idx < 0) return this.sendError(ws, 'That bot is not in the room.');
-    r.players.splice(idx, 1);
-    this.touch();
-    await this.save();
-    this.broadcastRoom();
-  }
-
   async onKick(ws, isHost, msg) {
     const r = this.room;
     if (!isHost) return this.sendError(ws, 'Only the host can remove players.');
     if (r.status !== 'lobby') return this.sendError(ws, 'Players can only be removed in the lobby.');
-    const target = r.players.find((p) => !p.isBot && p.id === msg.id);
+    const target = r.players.find((p) => p.id === msg.id);
     if (!target) return this.sendError(ws, 'That player is not in the room.');
     if (target.id === r.hostId) return this.sendError(ws, 'You cannot remove yourself.');
     r.players = r.players.filter((p) => p.id !== target.id);
@@ -659,8 +636,6 @@ export class GameRoom extends DurableObject {
           id: p.id,
           name: p.name,
           avatar: p.avatar,
-          isBot: !!p.isBot,
-          ...(p.bot ? { bot: p.bot } : {}),
         })),
         settings: { ...r.settings },
         seed: crypto.getRandomValues(new Uint32Array(1))[0],
@@ -724,6 +699,19 @@ export class GameRoom extends DurableObject {
     const res = a.applyAction(r.state, action);
     if (res.error) return res;
     r.state = res.state;
+    if (action.type === 'SNATCH' && r.state.phase === 'snatch') {
+      // A sealed press (docs/GAME_RULES.md 9.4): nobody else may learn that it happened, or when. No seq bump, no
+      // broadcast; only the presser gets a snapshot so their own button locks. The window's timer is unchanged.
+      this.touch();
+      for (const ws of this.liveSockets()) {
+        if (ws.deserializeAttachment()?.userId === action.playerId) {
+          this.send(ws, { t: 'state', state: this.viewOf(action.playerId), events: [], seq: r.seq });
+        }
+      }
+      await this.save();
+      await this.scheduleAlarm();
+      return res;
+    }
     r.seq += 1;
     r.lastApplyAt = Date.now();
     r.animMs = typeof a.animationMs === 'function' ? a.animationMs(res.events) : 0;
@@ -775,7 +763,6 @@ export class GameRoom extends DurableObject {
   /**
    * What the game is waiting for next: `{ at, id, action, timeout }` or null. Candidates:
    * - the adapter's own timers (`deadlines`, e.g. an unanswered offer is auto-rejected);
-   * - the bot that should move (`nextBotMove`), after a short pause;
    * - every human the game waits for (`pendingPlayerIds`): idle (afk) and disconnected-past-grace
    *   humans are auto-played (`idleAction`) after the same short pause; a connected human gets
    *   TURN_MS (counted from when the last animation ends), then is flagged idle.
@@ -786,7 +773,7 @@ export class GameRoom extends DurableObject {
     const a = this.adapter;
     if (!r || !a || r.status !== 'playing' || !r.state || a.isOver(r.state)) return null;
     const pace = (action) => {
-      const delay = typeof a.moveDelayMs === 'function' ? a.moveDelayMs(action) : BOT_DELAY_MS;
+      const delay = typeof a.moveDelayMs === 'function' ? a.moveDelayMs(action) : AUTO_MOVE_DELAY_MS;
       return r.lastApplyAt + Math.max(delay, r.animMs);
     };
     const candidates = [];
@@ -797,13 +784,10 @@ export class GameRoom extends DurableObject {
       candidates.push({ at: startedAt + d.afterMs, id: d.playerId, action: d.action, timeout: false });
     }
 
-    const botMove = a.nextBotMove(r.state, Math.random);
-    if (botMove) candidates.push({ at: pace(botMove), id: botMove.playerId, action: botMove, timeout: false });
-
     const waiting = typeof a.pendingPlayerIds === 'function' ? a.pendingPlayerIds(r.state) : [a.turnPlayerId(r.state)];
     for (const id of waiting) {
       const seat = id == null ? null : r.players.find((p) => p.id === id);
-      if (!seat || seat.isBot) continue; // bots are covered by nextBotMove
+      if (!seat) continue;
       const action = a.idleAction(r.state, id);
       if (!action) continue;
       let at;
@@ -829,7 +813,6 @@ export class GameRoom extends DurableObject {
     const connected = this.connectedIds();
     let changed = false;
     for (const p of r.players) {
-      if (p.isBot) continue;
       if (connected.has(p.id)) {
         if (r.disc[p.id] != null) {
           delete r.disc[p.id];
@@ -840,7 +823,7 @@ export class GameRoom extends DurableObject {
         changed = true;
       }
     }
-    const anyHuman = r.players.some((p) => !p.isBot && !p.left && connected.has(p.id));
+    const anyHuman = r.players.some((p) => !p.left && connected.has(p.id));
     const marker = anyHuman ? null : r.noHumanSince ?? now;
     if (marker !== r.noHumanSince) {
       r.noHumanSince = marker;
@@ -862,7 +845,7 @@ export class GameRoom extends DurableObject {
     }
     if (r.status === 'lobby') {
       for (const p of r.players) {
-        if (!p.isBot && r.disc[p.id] != null) times.push(r.disc[p.id] + LOBBY_GRACE_MS);
+        if (r.disc[p.id] != null) times.push(r.disc[p.id] + LOBBY_GRACE_MS);
       }
       // A public lobby refreshes its listing row now and then so it keeps counting as fresh.
       if (r.visibility === 'public' && hasDb(this.env)) times.push(this.listedAt + LISTING_HEARTBEAT_MS);
@@ -917,7 +900,7 @@ export class GameRoom extends DurableObject {
 
     // 2) Lobby housekeeping: drop members who vanished; keep a public listing fresh.
     if (r.status === 'lobby') {
-      const gone = r.players.filter((p) => !p.isBot && r.disc[p.id] != null && now - r.disc[p.id] >= LOBBY_GRACE_MS);
+      const gone = r.players.filter((p) => r.disc[p.id] != null && now - r.disc[p.id] >= LOBBY_GRACE_MS);
       if (gone.length) {
         const ids = new Set(gone.map((p) => p.id));
         r.players = r.players.filter((p) => !ids.has(p.id));
@@ -940,7 +923,7 @@ export class GameRoom extends DurableObject {
 
     // 4) Playing: abandon when nobody is around, else make the due automated move.
     if (r.status === 'playing' && r.state) {
-      const allLeft = !r.players.some((p) => !p.isBot && !p.left);
+      const allLeft = !r.players.some((p) => !p.left);
       const deserted = r.noHumanSince != null && now - r.noHumanSince >= ABANDON_MS;
       if (allLeft || deserted) {
         r.status = 'finished';

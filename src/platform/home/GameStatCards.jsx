@@ -5,8 +5,8 @@ import { GameIcon } from './GameArt.jsx';
 import { fmtStat, resolveGameStats, statDefs, statValue } from './gameStats.js';
 import { themeVars } from './gameTheme.js';
 
-/** One card per live game with the player's numbers (server per-game stats, else the offline record). */
-export default function GameStatCards({ games, user, profile }) {
+/** One card per live game with the player's numbers (the server's per-game stats). */
+export default function GameStatCards({ games, user }) {
   if (!games.length) return null;
   return (
     <section className="hub-section" aria-labelledby="hh2-stats-h">
@@ -17,7 +17,7 @@ export default function GameStatCards({ games, user, profile }) {
       </div>
       <ul className="hh2-statcards">
         {games.map((g) => {
-          const stats = resolveGameStats({ user, profile, gameId: g.id });
+          const stats = resolveGameStats({ user, gameId: g.id });
           const defs = statDefs(g, 3);
           return (
             <li key={g.id}>
@@ -26,13 +26,7 @@ export default function GameStatCards({ games, user, profile }) {
                   <GameIcon game={g} size={48} />
                   <div>
                     <h3>{g.name}</h3>
-                    <p>
-                      {stats
-                        ? stats.source === 'local'
-                          ? 'Offline record on this device'
-                          : 'Your record'
-                        : 'Not played yet'}
-                    </p>
+                    <p>{stats ? 'Your record' : 'Not played yet'}</p>
                   </div>
                 </header>
                 {stats ? (

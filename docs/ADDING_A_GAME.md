@@ -2,31 +2,29 @@
 
 A game is three small pieces that share one **id** (url-safe, lowercase, never changes, e.g. `ludo-lanes`):
 
-1. **Rules** in `shared/<id>/`: pure JS, no DOM, no Worker APIs. Runs in the browser (bots, offline) and in the Worker (online).
+1. **Rules** in `shared/<id>/`: pure JS, no DOM, no Worker APIs. Runs in the Worker (online) and, for board data and derived views, in the browser. Every game is played online in a room of humans; there is no offline mode and no bot players (an engine may ship a move chooser that the adapter's `idleAction` uses to auto-play an idle or disconnected seat).
 2. **Frontend plugin** in `src/games/<id>/`: a tiny manifest plus lazy-loaded screens.
 3. **Server adapter** in `worker/games/<id>.js`: the only place the Worker learns the rules.
 
 Nothing else may know the game: the hub, lobby, `GameRoom`, leaderboard and database are generic.
-**Hyderabad Tycoon is the reference**: copy its shape (`src/games/hyderabad-tycoon/`, `worker/games/hyderabad-tycoon.js`). The full contract is `docs/MARKETPLACE.md` (sections 3, 4, 5).
+**Hyderabad Tycoon is the reference**: copy its shape (`src/games/hyderabad-tycoon/`, `worker/games/hyderabad-tycoon.js`). The full contract is `docs/MARKETPLACE.md` (sections 3, 4, 5). The wire protocol every game gets for free (room messages, `state` / `events` / `seq`, timers, reconnect, redaction hook) is `docs/GAME_RULES.md` section 8; its rules sections are Tycoon's own.
 
 ## 1. Folder layout
 
 ```
-shared/<id>/index.js          createGame, applyAction, bot brain, result (+ *.test.js)
+shared/<id>/index.js          createGame, applyAction, auto-play move chooser, result (+ *.test.js)
 src/games/<id>/
   manifest.js                 TINY: metadata, settings schema, loaders (no engine, no pages)
   settings.js                 presets, schema, summary (pure, unit-tested)
-  OfflineSetup.jsx            "play vs bots" setup; on Start: navigate(paths.offline(id), { state: { config } })
-  OfflineGame.jsx             full-screen game; reads location.state or a saved game; exit -> paths.game(id)
   OnlineGame.jsx              full-screen online game; reads useParams().code; exit -> paths.game(id)
-  <extra>.jsx                 optional pages (Story, Campaign...) listed in manifest.extras
-  SettingsPanel.jsx           optional; shown in Profile > "Game settings"
-  <id>.css                    the game's own styles (import it from the screens)
+  <id>.css                    optional: the game's own styles (import it from the screen)
 worker/games/<id>.js          the adapter (default export)
 ```
 
-Rules for screens: every URL comes from `paths.*` (`src/platform/paths.js`), never a string like `'/play'`. Screens render inside the
-hub (setup, extras) or full screen (game); they must not assume any hub chrome. Money: `formatINR` from `@shared/format.js`.
+Rules for screens: every URL comes from `paths.*` (`src/platform/paths.js`), never a string like `'/play'`. The game screen renders
+full screen and must not assume any hub chrome. Money: `formatINR` from `@shared/format.js`. The pre-game flow (game page with
+"How many players?" -> Create table -> lobby with the seat grid, invite block and Start) is the hub's, the same for every game:
+a game only supplies its manifest, settings schema and `OnlineGame`.
 
 ## 2. The manifest
 
@@ -39,24 +37,23 @@ export default {
   players: { min: 2, max: 4 }, duration: '10-20 min',
   theme: { accent: '#ffc857', accent2: '#ff8a3d', bg: '#1b1340' },
   art: { cover: MyCover, icon: MyIcon },
-  modes: { bots: true, friends: true, open: true },
-  features: ['Bots', 'Online rooms'],
-  howToPlay: [{ title: 'Roll', body: '...' }],            // 3-6 short steps
-  extras: [{ path: 'story', label: 'Story', icon: 'book', loader: () => import('./Story.jsx') }],
+  modes: { friends: true, open: false },    // online-only: private tables for friends
+  features: ['Play with friends'],                          // small chips
   settings: SETTINGS_SCHEMA,    // host settings, see below
-  summarize: (s) => 'Target 50 pts · 3 rounds',
-  loaders: { offlineSetup, offlineGame, onlineGame, settingsPanel },   // () => import('./X.jsx'), default exports
-  savedGame: () => null,        // or { title, subtitle, to: paths.offline(id) } for "Continue playing"
+  lobbySettings: ['goal'],      // optional: the schema keys the lobby shows (the rest keep their defaults); omit to show all
+  summarize: (s) => 'First to 50 points wins',              // the one line the lobby shows everyone
+  loaders: { onlineGame },      // () => import('./OnlineGame.jsx'), default export
   stats: [{ key: 'wins', label: 'Wins' }],                // user_game_stats fields to highlight
 };
 ```
 
-**Settings schema** (rendered by the lobby, read-only chips for guests): `{ key, label, type: 'segmented'|'stepper'|'toggle',
+**Settings schema** (rendered by the lobby for the host, a read-only summary for everyone else; only the keys in `lobbySettings` when it is set): `{ key, label, type: 'segmented'|'stepper'|'toggle',
 options?, min?, max?, step?, default, format?: 'inr'|'number'|'text', help? }`. A `stepper` with `options` shows quick-pick chips
 beside the +/- buttons. Defaults and limits **must equal** the adapter's `validateSettings`: copy
 `src/games/hyderabad-tycoon/settings.test.js`, which fails when schema and server drift apart.
 
-Minimum screens: `offlineSetup`, `offlineGame`, `onlineGame`. Setup may be a single "Start" button.
+The only screen a game provides is `onlineGame`. A host creates a *private* table from the game page with the number of seats
+picked from `players.min`..`players.max` and the schema defaults (`POST /api/rooms { gameId, maxPlayers, visibility: 'private', settings }`).
 Online games use `useOnlineGame(code)` (`src/lib/session/useOnlineGame.js`) and the Tycoon `GameView` as a model: one `session`
 object (`view`, `me`, `dispatch(action)`, `result`, `restart()`, `quit()`); the server redacts hidden state per viewer.
 
@@ -65,9 +62,9 @@ object (`view`, `me`, `dispatch(action)`, `result`, `restart()`, `quit()`); the 
 Start from `worker/games/hyderabad-tycoon.js`; the interface is documented at the top of `worker/games/index.js`
 (`missingFromAdapter(adapter)` lists what is absent). Required: `id, name, minPlayers, maxPlayers, defaultSettings,
 validateSettings(raw)`, `createGame({ players, settings, seed })`, `applyAction(state, action)` (**pure**; invalid -> same
-state + `error`), `nextBotMove(state, rnd)`, `turnPlayerId(state)`, `deadlines(state)`, `idleAction(state, playerId)`,
-`isOver(state)`, `result(state, meta)` -> `{ winnerId, reason, standings: [{ id, rank, score }] }`, `redact(state, viewerId)`,
-`rivals(count)`. Treat every client value as hostile: `validateSettings` and `sanitizeAction` are allow-lists, never trust ids,
+state + `error`), `turnPlayerId(state)`, `deadlines(state)`, `idleAction(state, playerId)`,
+`isOver(state)`, `result(state, meta)` -> `{ winnerId, reason, standings: [{ id, rank, score }] }`, `redact(state, viewerId)`. Optional hooks (`pendingPlayerIds`, `sanitizeAction`, `lobbySettings`, `summarize`, `animationMs`, `resignAction`, `track`, `emotes`, ...) are listed in the header of `worker/games/index.js`; `GameRoom` runs the 45 s decision timer, the 15 s disconnect grace and the `deadlines` for you.
+Treat every client value as hostile: `validateSettings` and `sanitizeAction` are allow-lists, never trust ids,
 amounts or `playerId` from a message. State must be JSON-serialisable (no Infinity, Map or Set); randomness only via `seed`/`rnd`.
 
 ## 4. Register it
@@ -79,7 +76,7 @@ const MANIFESTS = [tycoon, myGame, ...SOON_GAMES];  export const GAME_ADAPTERS =
 ```
 
 Promoting a teaser: delete its file in `src/games/_soon/` and its line in `_soon/index.js`, then register the real manifest.
-`getGame`, `/api/games`, the lobby, open tables, invites and the leaderboard tab pick the new game up automatically.
+`getGame`, `/api/games`, the game page, the lobby, invites and the leaderboard tab pick the new game up automatically.
 
 ## 5. Database and stats (nothing to migrate)
 
@@ -95,24 +92,22 @@ export them from its `index.js`. They take `className`/`style`, scale to their b
 
 ## 7. Testing checklist
 
-- `npx vitest run src shared worker` green; add tests for the engine (rules, fuzz with random bots to game over), the adapter
-  (`missingFromAdapter` is empty, `validateSettings`, `redact`, bots always have a move) and the manifest/schema.
+- `npx vitest run src shared worker` green; add tests for the engine (rules, fuzz with random legal actions to game over), the adapter
+  (`missingFromAdapter` is empty, `validateSettings`, `redact`, `idleAction` always has a move) and the manifest/schema.
 - `npx vite build` passes; the game page is its own chunk and the manifest import stays small.
-- Visual: setup, a few offline rounds, game over, resume, online lobby + game at 390x844 and 1280x800; no console errors with
-  the API down (offline mode must work without it).
-- Online: two browsers, public + private room, disconnect and reconnect, AFK auto-play, a hostile client action rejected.
+- Visual: game page, lobby (host and guest views), a few rounds, game over, at 390x844 and 1280x800; no console errors with
+  the API down.
+- Online: two browsers, a private room, disconnect and reconnect, AFK auto-play, a hostile client action rejected.
 
 ## 8. Game plugin checklist
 
 | Piece | Where | Done when |
 |---|---|---|
-| Rules + bots + tests | `shared/<id>/` | pure JS, deterministic from a seed, fuzzed to game over |
+| Rules + auto-play chooser + tests | `shared/<id>/` | pure JS, deterministic from a seed, fuzzed to game over |
 | Manifest | `src/games/<id>/manifest.js` | fields above, tagline <= 48 chars, no heavy imports |
 | Settings schema | manifest + `settings.js` | equals `validateSettings`; test proves it |
-| Offline setup + game | `OfflineSetup.jsx`, `OfflineGame.jsx` | start, play, resume, exit to `paths.game(id)` |
 | Online game | `OnlineGame.jsx` | joins `:code`, reconnects, leave works, results shown |
-| Extras / settings panel | `extras`, `SettingsPanel.jsx` | optional |
-| Saved game | `manifest.savedGame` | "Continue playing" shows title + subtitle + link |
+| Lobby settings | `manifest.lobbySettings` | optional: the lobby shows only these schema keys |
 | Server adapter | `worker/games/<id>.js` | `missingFromAdapter` empty; strict validation; redaction |
 | Registration | `registry.js`, `worker/games/index.js` | one line each |
 | Art | `src/components/art/hub/` | cover + icon, dark and light backgrounds |

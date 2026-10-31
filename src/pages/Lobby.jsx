@@ -4,21 +4,20 @@ import { createRoom, errorMessage } from '@/lib/api.js';
 import { useAuth } from '@/lib/auth.jsx';
 import { paths } from '@/platform/paths.js';
 import { useRoomConnection } from '@/components/online/useRoomConnection.js';
-import { resolveSettings, seatsMessage, visibilityMessage } from '@/components/online/settings.js';
+import { joinedLabel, joinedPercent, startState } from '@/components/online/lobbyModel.js';
+import { resolveSettings } from '@/components/online/settings.js';
 import { sameId } from '@/components/online/gameHelpers.js';
 import { isRoomCode, normalizeRoomCode } from '@/components/online/codes.js';
 import { gameName, gameOf, warmOnlineGame } from '@/components/online/games.js';
-import { rememberRoomGame, roomGameId, roomVisibility } from '@/components/online/gameRoute.js';
+import { rememberRoomGame, roomGameId } from '@/components/online/gameRoute.js';
 import ConfirmDialog from '@/components/online/ConfirmDialog.jsx';
 import GameIcon from '@/components/online/GameIcon.jsx';
 import InviteFriends from '@/components/online/InviteFriends.jsx';
-import PlayerRow from '@/components/online/PlayerRow.jsx';
+import Seat, { EmptySeat } from '@/components/online/Seat.jsx';
 import SettingsPanel from '@/components/online/SettingsPanel.jsx';
 import ShareCard from '@/components/online/ShareCard.jsx';
 import StatusPanel, { Loading } from '@/components/online/StatusPanel.jsx';
 import { useToasts } from '@/components/online/Toasts.jsx';
-import VisibilityBadge from '@/components/online/VisibilityBadge.jsx';
-import VisibilityPicker from '@/components/online/VisibilityPicker.jsx';
 import '@/styles/online.css';
 
 const SEAT_COLORS = ['#ff4d6d', '#ffd23f', '#3ddc97', '#4cc9f0', '#b794f6', '#ff9f43'];
@@ -140,18 +139,14 @@ function LobbyInner({ code, user }) {
   if (room.status === 'finished') return <Rematch room={room} game={game} gameId={gameId} gameLabel={gName} />;
 
   const players = Array.isArray(room.players) ? room.players : [];
-  const me = players.find((p) => sameId(p.id, user.id));
   const isHost = sameId(room.hostId, user.id);
-  const visibility = roomVisibility(room);
   const bounds = (game && game.players) || {};
   const maxPlayers = room.maxPlayers || bounds.max || 6;
   const minToStart = Number.isFinite(bounds.min) ? bounds.min : 2;
   const open = connection === 'open';
-  const humans = players.filter((p) => !p.isBot);
-  const waitingOn = humans.filter((p) => !sameId(p.id, room.hostId) && !p.ready);
-  const canStart = isHost && players.length >= minToStart && open && !starting;
-  const full = players.length >= maxPlayers;
-  const hostName = room.hostName || (players.find((p) => sameId(p.id, room.hostId)) || {}).name || 'Host';
+  const joined = players.length;
+  const { enough, full, emptySeats, label: startLabel, help: startHelp } = startState({ players: joined, joined, maxPlayers, minToStart, starting });
+  const canStart = isHost && enough && open && !starting;
 
   const start = () => {
     if (!canStart) return;
@@ -167,25 +162,18 @@ function LobbyInner({ code, user }) {
   };
 
   const askLeave = () => {
-    if (isHost && humans.length > 1) setConfirm({ kind: 'leave' });
+    if (isHost && players.length > 1) setConfirm({ kind: 'leave' });
     else doLeave();
   };
 
-  const emptySeats = Math.max(0, maxPlayers - players.length);
-  const sendNow = (msg) => send(msg, { queue: false });
-
   return (
-    <div className="ho-page ho-lobby" style={themeVars(game)}>
-      <header className="ho-lobbyhead">
-        <GameIcon game={game} name={gName} size={64} className="ho-lobbyhead__icon" />
-        <div className="ho-lobbyhead__main">
-          <span className="ho-eyebrow">Lobby</span>
+    <div className="ho-page ho-lobby ho-lobby--quick" style={themeVars(game)}>
+      <header className="ho-qhead">
+        <GameIcon game={game} name={gName} size={48} className="ho-qhead__icon" />
+        <div className="ho-qhead__main">
           <h1 className="ho-h1">{gName}</h1>
-          <p className="ho-muted ho-lobbyhead__sub">
-            <span>
-              {hostName}&rsquo;s room · {players.length}/{maxPlayers} players
-            </span>
-            <VisibilityBadge visibility={visibility} />
+          <p className="ho-muted">
+            Room <b className="ho-qhead__code">{code}</b>
           </p>
         </div>
         <button type="button" className="ho-btn ho-btn--ghost ho-btn--sm" onClick={askLeave}>
@@ -204,107 +192,62 @@ function LobbyInner({ code, user }) {
         </div>
       )}
 
-      <div className="ho-grid">
-        <div className="ho-col">
-          <ShareCard code={code} gameName={gName} onNotify={push} />
+      <ShareCard code={code} gameName={gName} onNotify={push} />
+      {user.isGuest && (
+        <p className="ho-help ho-qguest">
+          Share the code, link or QR above. <Link to={paths.login(paths.lobby(code))}>Sign in with Google</Link> to invite friends in one tap.
+        </p>
+      )}
 
-          <section className="ho-card ho-players" aria-label="Players">
-            <div className="ho-card__head">
-              <h2 className="ho-h2">Players</h2>
-              <span className="ho-count">
-                {players.length}/{maxPlayers}
-              </span>
-            </div>
-            <ul className="ho-list ho-list--players">
-              {players.map((p, i) => (
-                <PlayerRow
-                  key={p.id}
-                  player={p}
-                  color={SEAT_COLORS[i % SEAT_COLORS.length]}
-                  isMe={sameId(p.id, user.id)}
-                  isHost={sameId(p.id, room.hostId)}
-                  canRemove={isHost && !sameId(p.id, user.id) && open}
-                  onRemove={() => (p.isBot ? send({ t: 'removeBot', id: p.id }) : setConfirm({ kind: 'kick', player: p }))}
-                />
-              ))}
-              {Array.from({ length: emptySeats }, (_, i) => (
-                <li key={`empty-${i}`} className="ho-player ho-player--empty" aria-label="Open seat">
-                  <span className="ho-player__avatar ho-player__avatar--empty" aria-hidden="true">
-                    +
-                  </span>
-                  <span className="ho-player__main">
-                    <span className="ho-player__name ho-muted">Waiting for a player...</span>
-                  </span>
-                </li>
-              ))}
-            </ul>
-            {isHost && (
-              <button type="button" className="ho-btn ho-btn--ghost ho-btn--block" onClick={() => send({ t: 'addBot' })} disabled={full || !open}>
-                {full ? 'Room is full' : 'Add a bot'}
-              </button>
-            )}
-          </section>
-
-          <section className="ho-card ho-startcard" aria-label="Ready and start">
-            {isHost ? (
-              <>
-                <button type="button" className="ho-btn ho-btn--primary ho-btn--lg ho-btn--block" onClick={start} disabled={!canStart}>
-                  {starting ? 'Starting...' : players.length < minToStart ? `Need at least ${minToStart} players` : 'Start game'}
-                </button>
-                <p className="ho-help" aria-live="polite">
-                  {players.length < minToStart
-                    ? 'Invite a friend with the code, or add a bot to play right now.'
-                    : waitingOn.length > 0
-                      ? `${waitingOn.map((p) => p.name).join(', ')} ${waitingOn.length === 1 ? 'is' : 'are'} not ready yet. You can still start.`
-                      : 'Everyone is ready.'}
-                </p>
-              </>
-            ) : (
-              <>
-                <button
-                  type="button"
-                  className={`ho-btn ho-btn--lg ho-btn--block ${me && me.ready ? 'ho-btn--ghost' : 'ho-btn--primary'}`}
-                  onClick={() => send({ t: 'ready', ready: !(me && me.ready) })}
-                  disabled={!open || !me}
-                  aria-pressed={!!(me && me.ready)}
-                >
-                  {me && me.ready ? 'Ready! Tap to undo' : "I'm ready"}
-                </button>
-                <p className="ho-help" aria-live="polite">
-                  Waiting for the host to start the game.
-                </p>
-              </>
-            )}
-          </section>
+      <section className="ho-card ho-seats" aria-label="Players">
+        <div className="ho-card__head">
+          <h2 className="ho-h2">Players</h2>
+          <span className={`ho-count${full ? ' is-full' : ''}`} aria-live="polite">
+            {joinedLabel(joined, maxPlayers)}
+          </span>
         </div>
-
-        <div className="ho-col">
-          {isHost && <VisibilityPicker visibility={visibility} disabled={!open} errorId={errorId} onPick={(v) => sendNow(visibilityMessage(v))} />}
-
-          <SettingsPanel
-            game={game}
-            settings={room.settings}
-            maxPlayers={maxPlayers}
-            playerCount={players.length}
-            isHost={isHost}
-            disabled={!open}
-            errorId={errorId}
-            onSend={sendNow}
-            onMaxPlayers={(n) => sendNow(seatsMessage(n))}
-          />
-
-          {user.isGuest ? (
-            <section className="ho-card ho-invite" aria-label="Invite friends">
-              <h2 className="ho-h2">Invite friends</h2>
-              <p className="ho-empty">
-                Share the code, link or QR above. <Link to={paths.login(paths.lobby(code))}>Sign in with Google</Link> to invite friends in one tap.
-              </p>
-            </section>
-          ) : (
-            <InviteFriends code={code} gameName={gName} onNotify={push} />
-          )}
+        <div className="ho-progress" role="progressbar" aria-label="Seats taken" aria-valuemin={0} aria-valuemax={maxPlayers} aria-valuenow={Math.min(joined, maxPlayers)}>
+          <span style={{ width: `${joinedPercent(joined, maxPlayers)}%` }} />
         </div>
-      </div>
+        <ul className="ho-seatgrid">
+          {players.map((p, i) => (
+            <Seat
+              key={p.id}
+              player={p}
+              color={SEAT_COLORS[i % SEAT_COLORS.length]}
+              isMe={sameId(p.id, user.id)}
+              isHost={sameId(p.id, room.hostId)}
+              canRemove={isHost && !sameId(p.id, user.id) && open}
+              onRemove={() => setConfirm({ kind: 'kick', player: p })}
+            />
+          ))}
+          {Array.from({ length: emptySeats }, (_, i) => (
+            <EmptySeat key={`empty-${i}`} />
+          ))}
+        </ul>
+      </section>
+
+      <SettingsPanel game={game} settings={room.settings} isHost={isHost} disabled={!open} errorId={errorId} onSend={(msg) => send(msg, { queue: false })} />
+      <p className="ho-help ho-rules">Table rules: single die &middot; 1 Snatch each &middot; sealed bidding on a tie</p>
+
+      <section className="ho-card ho-startcard" aria-label="Start">
+        {isHost ? (
+          <>
+            <button type="button" className={`ho-btn ho-btn--primary ho-btn--lg ho-btn--block${full && canStart ? ' ho-btn--full' : ''}`} onClick={start} disabled={!canStart}>
+              {startLabel}
+            </button>
+            <p className="ho-help" aria-live="polite">
+              {startHelp}
+            </p>
+          </>
+        ) : (
+          <p className="ho-waiting" role="status" aria-live="polite">
+            <span className="ho-spinner" aria-hidden="true" /> Waiting for the host to start...
+          </p>
+        )}
+      </section>
+
+      {!user.isGuest && <InviteFriends code={code} gameName={gName} onNotify={push} />}
 
       <ConfirmDialog
         open={confirm?.kind === 'leave'}
@@ -321,7 +264,7 @@ function LobbyInner({ code, user }) {
       <ConfirmDialog
         open={confirm?.kind === 'kick'}
         title={confirm?.player ? `Remove ${confirm.player.name}?` : ''}
-        body="They will be taken out of the lobby. They can rejoin with the code."
+        body="They will be taken out of the lobby and cannot rejoin for a while."
         confirmLabel="Remove"
         danger
         onCancel={() => setConfirm(null)}

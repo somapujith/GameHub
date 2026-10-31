@@ -89,14 +89,11 @@ export default function Login() {
             <h1 id="ho-login-title" className="ho-h1">
               Can&rsquo;t reach the game server
             </h1>
-            <p className="ho-muted">Online rooms and friends need the server. Check your connection, or play offline against bots meanwhile.</p>
+            <p className="ho-muted">Rooms and friends need the server. Check your connection and try again.</p>
             <div className="ho-status__actions">
               <button type="button" className="ho-btn ho-btn--primary" onClick={retry} disabled={retrying}>
                 {retrying ? 'Trying...' : 'Try again'}
               </button>
-              <Link to={paths.setup(BRAND.defaultGameId)} className="ho-btn ho-btn--ghost">
-                Play offline
-              </Link>
             </div>
           </div>
         ) : (
@@ -175,7 +172,7 @@ export default function Login() {
                 </form>
 
                 <ul className="ho-guestnote" aria-label="What guests can and cannot do">
-                  <li className="is-yes">Guests can host and join rooms, and play offline.</li>
+                  <li className="is-yes">Guests can host and join rooms and play with friends.</li>
                   <li className="is-no">Guests cannot add friends, get invites, appear on the leaderboard or keep progress on another device.</li>
                 </ul>
               </>

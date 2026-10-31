@@ -517,58 +517,6 @@
   }
 }
 
-/* ---------- continue playing ---------- */
-.hh2-cont {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  gap: 10px;
-}
-@container hh2 (min-width: 760px) {
-  .hh2-cont {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-}
-.hh2-cont__card {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  min-height: 80px;
-  padding: 12px 14px;
-  color: var(--hub-text);
-  background: linear-gradient(110deg, var(--g-soft, var(--hub-brand-soft)), transparent 62%), var(--hub-surface);
-}
-.hh2-cont__text {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 0;
-}
-.hh2-cont__text b,
-.hh2-cont__text small {
-  display: -webkit-box;
-  overflow: hidden;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-  line-clamp: 2;
-}
-.hh2-cont__text b {
-  font-size: 16px;
-  font-weight: 800;
-  line-height: 1.2;
-}
-.hh2-cont__text small {
-  font-size: 13px;
-  line-height: 1.3;
-  color: var(--hub-dim);
-}
-.hh2-cont__cta {
-  flex: none;
-  gap: 6px;
-  min-height: 34px;
-  padding: 0 16px;
-}
-
 /* ---------- friends ---------- */
 .hh2-friends__rail > li {
   display: block;
@@ -614,21 +562,6 @@
 }
 .hh2-friend:hover .hh2-ava {
   box-shadow: 0 0 0 3px var(--hub-brand-soft);
-}
-
-/* ---------- open tables ---------- */
-.hh2-tables {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  gap: 12px;
-}
-@container hh2 (min-width: 800px) {
-  .hh2-tables {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-}
-.hh2-table .hub-btn {
-  min-width: 68px;
 }
 
 /* ---------- top players teaser + daily reward ---------- */
@@ -1455,74 +1388,6 @@
 }
 .hh2-setgrid > .hub-panel {
   gap: 6px;
-}
-.hh2-card__note {
-  margin-bottom: 6px;
-}
-.hh2-subhead {
-  margin: 8px 0 0;
-  font-size: 15px;
-  font-weight: 800;
-  color: var(--hub-dim);
-}
-.hh2-gamesettings {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-.hh2-acc {
-  overflow: hidden;
-  border-radius: var(--hub-r-l);
-  background: var(--hub-surface);
-  border: 1px solid var(--hub-line);
-  transition: border-color 0.2s;
-}
-.hh2-acc.is-open {
-  border-color: var(--g-line, var(--hub-line-2));
-}
-.hh2-acc__head {
-  margin: 0;
-}
-.hh2-acc__btn {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  width: 100%;
-  min-height: 64px;
-  padding: 10px 14px;
-  text-align: left;
-  color: var(--hub-text);
-}
-.hh2-acc__name {
-  font-size: 16px;
-  font-weight: 800;
-}
-.hh2-acc__hint {
-  display: none;
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  font-size: 13px;
-  color: var(--hub-dim);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-@container hh2 (min-width: 520px) {
-  .hh2-acc__hint {
-    display: block;
-  }
-}
-.hh2-acc__chev {
-  flex: none;
-  margin-left: auto;
-  color: var(--hub-faint);
-  transition: transform 0.28s var(--hub-ease);
-}
-.hh2-acc.is-open .hh2-acc__chev {
-  transform: rotate(180deg);
-}
-.hh2-acc__body {
-  padding: 4px 16px 18px;
 }
 .hh2-danger {
   flex-direction: row;

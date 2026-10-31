@@ -9,5 +9,5 @@ export default makeSoon({
   players: { min: 2, max: 4 },
   duration: '15-30 min',
   theme: { accent: '#ff5d73', accent2: '#ffb84d', bg: '#2a1030' },
-  features: ['Online rooms', 'Bots', 'Quick rounds'],
+  features: ['Online rooms', 'Quick rounds'],
 });

@@ -56,9 +56,6 @@ function Slide({ game, active, index, total }) {
               <Link to={paths.game(game.id)} className="hub-btn hub-btn--accent hub-btn--lg">
                 <HubIcon name="play" size={18} /> Play now
               </Link>
-              <Link to={paths.game(game.id)} className="hub-btn hub-btn--soft hub-btn--lg">
-                <HubIcon name="users" size={18} /> With friends
-              </Link>
             </>
           ) : (
             <Link to={paths.game(game.id)} className="hub-btn hub-btn--soft hub-btn--lg">

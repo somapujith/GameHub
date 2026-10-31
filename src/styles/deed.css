@@ -1,0 +1,70 @@
+/* ============================================================ title deed (PropertySheet)
+   A paper card in the style of a Monopoly title deed, inside the dark game sheet.
+   --band (set inline) is the colour of the tile's group. */
+
+.hg-deed-kicker { letter-spacing: 0.32em !important; }
+
+.hg-deed {
+  --paper: #fbf8ee;
+  --paper-ink: #1c1a16;
+  --paper-dim: #5b5546;
+  --paper-rule: #15130f;
+  position: relative;
+  margin: 0 0 12px;
+  border: 2px solid var(--paper-rule);
+  border-top-width: 8px;
+  border-top-color: var(--band, var(--paper-rule));
+  border-radius: 6px;
+  background: var(--paper);
+  color: var(--paper-ink);
+  font-family: Calibri, 'Segoe UI', Arial, sans-serif;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.4);
+  overflow: hidden;
+}
+
+.hg-deed-table { width: 100%; border-collapse: collapse; font-size: 15px; }
+.hg-deed-table th, .hg-deed-table td { padding: 5px 14px; border-bottom: 1px dotted rgba(21, 19, 15, 0.28); vertical-align: baseline; }
+.hg-deed-table tr:last-child th, .hg-deed-table tr:last-child td { border-bottom: 0; }
+.hg-deed-table th { text-align: left; font-weight: 600; }
+.hg-deed-table th em { margin-left: 6px; font-style: normal; font-weight: 400; font-size: 12.5px; color: var(--paper-dim); }
+.hg-deed-table td { text-align: right; font-weight: 800; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.hg-deed-table td small { display: block; font-size: 11px; font-weight: 500; color: var(--paper-dim); white-space: normal; }
+.hg-deed-table tr:first-child th { font-size: 17px; letter-spacing: 0.04em; }
+.hg-deed-table tr:first-child td { font-size: 19px; }
+.hg-deed-table tr.is-hotel th, .hg-deed-table tr.is-hotel td { text-transform: uppercase; letter-spacing: 0.03em; }
+.hg-deed-table tr.is-current th, .hg-deed-table tr.is-current td {
+  background: color-mix(in srgb, var(--band, #f2b705) 26%, #fff);
+}
+.hg-deed-table tr.is-current th { box-shadow: inset 4px 0 0 var(--band, #f2b705); }
+.hg-deed-table tr.is-current th::after { content: ' \25C0'; font-size: 10px; color: var(--paper-dim); }
+
+.hg-deed-foot { padding: 8px 14px 10px; border-top: 2px solid var(--paper-rule); font-size: 14px; }
+.hg-deed-line { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 6px; margin: 2px 0; }
+.hg-deed-line b { font-variant-numeric: tabular-nums; }
+.hg-deed-line small { margin-left: auto; font-size: 11.5px; color: var(--paper-dim); }
+.hg-deed-note { margin: 6px 0 0; font-size: 12px; font-style: italic; line-height: 1.4; color: var(--paper-dim); }
+.hg-deed-foot .hg-deed-note:first-child { margin-top: 0; margin-bottom: 4px; }
+
+/* corners, card squares, taxes */
+.hg-deed--special { padding: 18px 18px 16px; text-align: center; }
+.hg-deed-rule {
+  margin: 0; padding: 10px 0; font-size: 18px; font-weight: 700; line-height: 1.35;
+  border-block: 2px solid var(--paper-rule);
+}
+.hg-deed--special .hg-deed-note { margin-top: 12px; font-style: normal; font-size: 14px; }
+
+/* the card turned over: mortgaged */
+.hg-deed--mortgaged {
+  display: grid; justify-items: center; gap: 4px; padding: 20px 18px 18px; text-align: center; font-size: 16px;
+  background:
+    repeating-linear-gradient(135deg, rgba(21, 19, 15, 0.05) 0 8px, transparent 8px 16px),
+    var(--paper);
+}
+.hg-deed-mname { font-size: 18px; text-transform: uppercase; letter-spacing: 0.04em; }
+.hg-deed-stamp {
+  padding: 2px 16px; border: 3px solid #b3261e; border-radius: 4px; color: #b3261e;
+  font-size: 22px; letter-spacing: 0.14em; text-transform: uppercase; transform: rotate(-4deg);
+}
+.hg-deed--mortgaged p { margin: 0; font-weight: 700; }
+.hg-deed--mortgaged em { max-width: 30ch; font-size: 13px; line-height: 1.4; color: var(--paper-dim); }
+.hg-deed-dot { color: var(--paper-dim); line-height: 1; }

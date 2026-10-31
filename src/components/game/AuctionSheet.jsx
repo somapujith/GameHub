@@ -1,15 +1,22 @@
-// Sealed-bid auction (Laad Bazaar). Opens by itself, can only be closed by bidding or passing.
-import { useState } from 'react';
+// Sealed-bid auction of a property that a player skipped (when the host turned auctions on), or the bidding
+// between snatchers (`pending.snatch`): there only the claimants get the bid form, everybody else (the buyer
+// included) just watches. Opens by itself; a bidder can only close it by bidding or passing.
+// Works for any buyable tile: plot, station or utility.
+import { useEffect, useState } from 'react';
 import { Avatar, TileIcon } from '@/components/art/index.js';
 import { TILES } from '@shared/board.js';
 import { formatINR } from '@shared/format.js';
 import Sheet from './ui/Sheet.jsx';
 import Button from './ui/Button.jsx';
 import Icon from './ui/Icon.jsx';
-import { tileAccent, useHeld } from './ui/helpers.js';
+import { tileAccent, tileTypeLabel, useHeld } from './ui/helpers.js';
 
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 const round50 = (v) => Math.round(v / 50) * 50;
+
+/** One id per auction: the same tile can be auctioned again later, and must not inherit the old "I passed". */
+export const auctionInstance = (view, auction) =>
+  auction ? `${auction.tile}:${view.round}:${view.turnCount ?? view.turn}:${auction.snatch ? 's' : 'a'}` : null;
 
 export default function AuctionSheet({ session }) {
   const { options, view, me } = session;
@@ -17,14 +24,28 @@ export default function AuctionSheet({ session }) {
   const auction = view?.phase === 'auction' && pend?.type === 'auction' ? pend : null;
   const bidOpt = options?.bid || null;
   const tileKey = auction ? auction.tile : null;
+  // One auction = one instance. The local "I bid / I passed" memory is keyed by it and wiped when the auction ends,
+  // so the next auction of the SAME tile (a skipped tile can come round again) never starts as "already answered".
+  const instance = auctionInstance(view, auction);
 
   const [st, setSt] = useState({ key: null, amount: null, sent: null });
-  const cur = st.key === tileKey ? st : { key: tileKey, amount: null, sent: null };
-  const update = (patch) => setSt({ ...cur, ...patch, key: tileKey });
+  const cur = st.key === instance ? st : { key: instance, amount: null, sent: null };
+  const update = (patch) => setSt({ ...cur, ...patch, key: instance });
+  const [hiddenKey, setHiddenKey] = useState(null); // an observer may close the snatch-bidding panel
+  useEffect(() => {
+    if (!auction) setSt({ key: null, amount: null, sent: null });
+  }, [auction]);
 
   const myRecorded = auction?.bids && Object.prototype.hasOwnProperty.call(auction.bids, me) ? auction.bids[me] : undefined;
   const waiting = !!auction && (myRecorded !== undefined || cur.sent !== null);
-  const open = !!auction && (!!bidOpt || waiting);
+
+  // Snatch bidding: the engine pre-fills a 0 bid for everyone who did not snatch, so "recorded 0" alone does not
+  // make a claimant. Use the roster when the state has one, else: I can bid, I bid here, or I recorded a real bid.
+  const snatch = !!auction?.snatch;
+  const roster = Array.isArray(auction?.claimants) ? auction.claimants : Array.isArray(auction?.eligible) ? auction.eligible : null;
+  const claimant = !snatch || (roster ? roster.includes(me) : !!bidOpt || cur.sent !== null || myRecorded > 0);
+  const observer = snatch && !claimant;
+  const open = !!auction && (!!bidOpt || waiting) && !(observer && hiddenKey === instance);
 
   const heldTile = useHeld(tileKey);
   const heldMin = useHeld(bidOpt?.min ?? auction?.minBid ?? null);
@@ -46,35 +67,47 @@ export default function AuctionSheet({ session }) {
 
   const presets = [
     { key: 'min', label: 'Min', amount: min },
-    { key: 'mid', label: '1.2× min', amount: round50(min * 1.2) },
+    { key: 'mid', label: '1.2× min', amount: Math.max(min, round50(min * 1.2)) },
     { key: 'full', label: 'Full price', amount: tile?.price ?? min * 2 },
   ];
 
   const { color, ink } = tile ? tileAccent(tile) : { color: '#3b2d8f', ink: '#fff' };
-  const others = (view?.players || []).filter((p) => !p.bankrupt && p.id !== me);
+  const others = (view?.players || []).filter((p) => !p.bankrupt && p.id !== me && (!snatch || (roster ? roster.includes(p.id) : false)));
+  const buyer = snatch ? (view?.players || []).find((p) => p.id === auction.buyer) : null;
+  const buyerName = buyer ? (buyer.id === me ? 'You' : buyer.name) : 'The buyer';
+  const paid = auction?.price ?? tile?.price ?? 0;
   const pct = max > min ? ((value - min) / (max - min)) * 100 : 0;
 
   return (
     <Sheet
       open={open}
-      onClose={() => {}}
-      dismissible={false}
-      ariaLabel={tile ? `Auction for ${tile.name}` : 'Auction'}
+      onClose={() => { if (observer) setHiddenKey(instance); }}
+      dismissible={observer}
+      ariaLabel={tile ? `${snatch ? 'Snatch bidding' : 'Auction'} for ${tile.name}` : 'Auction'}
       className="hg-auction"
       desktop="modal"
       header={tile ? (
         <div className="hg-prop-band hg-auction-band" data-drag="" style={{ '--band': color, '--ink': ink }}>
           <span className="hg-prop-icon"><TileIcon tile={tile} size={44} /></span>
           <div className="hg-prop-titles">
-            <p className="hg-kicker">Sealed-bid auction</p>
+            <p className="hg-kicker">{snatch ? 'Snatch bidding' : <>Auction &middot; sealed bids</>}</p>
             <h2>{tile.name}</h2>
-            <p lang="te">{tile.te}</p>
           </div>
-          <span className="hg-prop-type">{formatINR(tile.price)}</span>
+          <span className="hg-prop-type">{tileTypeLabel(tile)} &middot; {formatINR(tile.price)}</span>
         </div>
       ) : null}
     >
-      {tile ? (
+      {tile && observer ? (
+        <div className="hg-auction-wait" role="status">
+          <p className="hg-auction-waiting">
+            Snatchers are bidding for {tile.name}<span className="hg-dots" aria-hidden="true"><i /><i /><i /></span>
+          </p>
+          <p className="hg-hint">
+            <Icon name="info" size={14} />
+            <span>{buyerName} already paid {formatINR(paid)} and {buyer?.id === me ? 'keep' : 'keeps'} it if nobody bids.</span>
+          </p>
+        </div>
+      ) : tile ? (
         waiting ? (
           <div className="hg-auction-wait" role="status">
             <div className="hg-auction-sealed">
@@ -85,7 +118,7 @@ export default function AuctionSheet({ session }) {
               </div>
             </div>
             <p className="hg-auction-waiting">
-              Waiting for others<span className="hg-dots" aria-hidden="true"><i /><i /><i /></span>
+              Waiting for {snatch ? 'the other snatchers' : 'others'}<span className="hg-dots" aria-hidden="true"><i /><i /><i /></span>
             </p>
             <ul className="hg-auction-others">
               {others.map((p) => {
@@ -102,6 +135,12 @@ export default function AuctionSheet({ session }) {
           </div>
         ) : (
           <div className="hg-auction-form">
+            {snatch ? (
+              <p className="hg-hint">
+                <Icon name="info" size={14} />
+                <span>You snatched! {buyerName} already paid {formatINR(paid)} and {buyer?.id === me ? 'keep' : 'keeps'} it if nobody bids. The winner pays their bid and spends a Snatch.</span>
+              </p>
+            ) : null}
             <div className="hg-auction-facts">
               <div><span>Minimum bid</span><b>{formatINR(min)}</b></div>
               <div><span>Your cash</span><b className="is-gold">{formatINR(max)}</b></div>

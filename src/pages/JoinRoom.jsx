@@ -1,20 +1,20 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Link, Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { createRoom, errorMessage, getRoom } from '@/lib/api.js';
+import { Link, Navigate, useNavigate, useParams } from 'react-router-dom';
+import { errorMessage, getRoom } from '@/lib/api.js';
 import { useAuth } from '@/lib/auth.jsx';
+import { BRAND } from '@/platform/brand.js';
 import { paths } from '@/platform/paths.js';
 import CodeInput from '@/components/online/CodeInput.jsx';
 import GameIcon from '@/components/online/GameIcon.jsx';
-import VisibilityBadge from '@/components/online/VisibilityBadge.jsx';
 import { Loading } from '@/components/online/StatusPanel.jsx';
 import { isRoomCode, normalizeRoomCode, playerCountOf, roomProblem } from '@/components/online/codes.js';
-import { defaultGame, gameName, gameOf, inviteGames } from '@/components/online/games.js';
-import { roomGameId, roomVisibility } from '@/components/online/gameRoute.js';
+import { gameName, gameOf } from '@/components/online/games.js';
+import { roomGameId } from '@/components/online/gameRoute.js';
 import '@/styles/online.css';
 
 const JOIN_DELAY = 700; // ms: long enough to read who and what you are joining
 
-/** Who and what a code is: game icon + name, host, players/max, public/private. */
+/** Who and what a code is: game icon + name, host, players/max. */
 function RoomPreview({ info }) {
   const gameId = roomGameId(info);
   const game = gameOf(gameId);
@@ -29,11 +29,6 @@ function RoomPreview({ info }) {
         <span className="ho-roompreview__sub">
           {info.hostName ? `Hosted by ${info.hostName}` : 'Open room'} · {max ? `${count}/${max}` : count} {count === 1 && !max ? 'player' : 'players'}
         </span>
-        {info.visibility && (
-          <span className="ho-roompreview__badge">
-            <VisibilityBadge visibility={roomVisibility(info)} />
-          </span>
-        )}
       </div>
     </div>
   );
@@ -45,8 +40,6 @@ function RoomPreview({ info }) {
  */
 export default function JoinRoom() {
   const { code: paramCode } = useParams();
-  const [params] = useSearchParams();
-  const hosting = params.get('host') === '1';
   const { user, loading } = useAuth();
   const navigate = useNavigate();
   const fromLink = !!paramCode;
@@ -87,7 +80,7 @@ export default function JoinRoom() {
 
   // validate as soon as six valid characters are in
   useEffect(() => {
-    if (loading || !user || hosting) return;
+    if (loading || !user) return;
     if (!isRoomCode(code)) {
       seq.current += 1;
       clearTimeout(joinTimer.current);
@@ -95,7 +88,7 @@ export default function JoinRoom() {
       return;
     }
     verify(code);
-  }, [code, loading, user, verify, hosting]);
+  }, [code, loading, user, verify]);
 
   if (loading) {
     return (
@@ -105,11 +98,9 @@ export default function JoinRoom() {
     );
   }
   if (!user) {
-    const target = hosting ? `${paths.join()}?host=1` : isRoomCode(code) ? paths.join(code) : paths.join();
+    const target = isRoomCode(code) ? paths.join(code) : paths.join();
     return <Navigate to={paths.login(target)} replace />;
   }
-
-  if (hosting) return <HostRoom initialGame={params.get('game')} />;
 
   const state = check.state;
   const uiState = state === 'checking' || state === 'joining' ? 'checking' : state === 'error' ? 'error' : 'idle';
@@ -182,93 +173,8 @@ export default function JoinRoom() {
       </section>
 
       <p className="ho-muted ho-join__alt">
-        Want your own table? <Link to={`${paths.join()}?host=1`}>Create a private room</Link>.
+        Want your own table? <Link to={paths.game(BRAND.defaultGameId)}>Create one</Link>.
       </p>
-    </div>
-  );
-}
-
-/** `/join?host=1[&game=<id>]`: choose a game and open a private room for it (the game pages also do this themselves). */
-function HostRoom({ initialGame }) {
-  const navigate = useNavigate();
-  const games = inviteGames();
-  const fallback = (initialGame && gameOf(initialGame)) || defaultGame();
-  const [gameId, setGameId] = useState(fallback ? fallback.id : games[0] ? games[0].id : '');
-  const [creating, setCreating] = useState(false);
-  const [error, setError] = useState('');
-  const pending = useRef(false);
-
-  const create = async () => {
-    if (pending.current || !gameId) return;
-    pending.current = true;
-    setCreating(true);
-    setError('');
-    try {
-      const room = await createRoom({ gameId, visibility: 'private' });
-      if (!room?.code) throw new Error('Your table could not be created. Try again.');
-      navigate(paths.lobby(room.code), { replace: true });
-    } catch (err) {
-      setError(errorMessage(err, 'Could not reach the server. Please try again.'));
-      pending.current = false;
-      setCreating(false);
-    }
-  };
-
-  return (
-    <div className="ho-page ho-join">
-      <header className="ho-head">
-        <div>
-          <span className="ho-eyebrow">Your friends. Your game.</span>
-          <h1 className="ho-h1">Host a table</h1>
-          <p className="ho-muted">A private room for you and your friends.</p>
-        </div>
-      </header>
-      <section className="ho-card ho-host" aria-labelledby="host-heading">
-        <h2 id="host-heading" className="ho-h2">
-          Pick a game
-        </h2>
-        {games.length === 0 ? (
-          <p className="ho-empty">No games are open for friends yet. Check back soon.</p>
-        ) : (
-          <div role="radiogroup" aria-label="Game" className="ho-gamelist">
-            {games.map((g) => (
-              <button
-                key={g.id}
-                type="button"
-                role="radio"
-                aria-checked={g.id === gameId}
-                className={`ho-gamepick${g.id === gameId ? ' is-on' : ''}`}
-                onClick={() => setGameId(g.id)}
-              >
-                <GameIcon game={g} size={48} />
-                <span className="ho-gamepick__main">
-                  <span className="ho-gamepick__name">{g.name}</span>
-                  <span className="ho-gamepick__sub">
-                    {g.players ? `${g.players.min}-${g.players.max} players` : g.tagline}
-                    {g.duration ? ` · ${g.duration}` : ''}
-                  </span>
-                </span>
-              </button>
-            ))}
-          </div>
-        )}
-        <ol className="ho-host__steps">
-          <li>Create a private room</li>
-          <li>Share your six-character code</li>
-          <li>Start when everyone is ready</li>
-        </ol>
-        <button type="button" className="ho-btn ho-btn--primary" disabled={creating || !gameId} aria-busy={creating} onClick={create}>
-          {creating ? 'Setting up your table…' : error ? 'Try creating again' : 'Create private room'}
-        </button>
-        {error && (
-          <p className="ho-bad" role="alert">
-            {error}
-          </p>
-        )}
-        <Link className="ho-linkbtn" to={paths.join()}>
-          Have a code? Join a room
-        </Link>
-      </section>
     </div>
   );
 }

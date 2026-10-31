@@ -1,7 +1,8 @@
-// Creating a room from a game page ("Play with friends" / "Host a table").
+// Creating a room from a game page ("Create table").
 //
 //   const { host, busy } = useHostRoom(game);
-//   host('private')   // or host('public')
+//   host({ maxPlayers: 4 })              // a private table with 4 seats and the default settings
+//   host('private')                      // older form: just the visibility
 //
 // A session (guest or Google) is required; without one the player is sent to /login and brought back to the
 // game page afterwards. Errors are shown as toasts, never thrown.
@@ -11,6 +12,18 @@ import { api, errorMessage } from '@/lib/api.js';
 import { useAuth } from '@/lib/auth.jsx';
 import { useToast } from '@/components/shell/Toast.jsx';
 import { paths } from '@/platform/paths.js';
+
+/**
+ * The `POST /api/rooms` body for `host(arg)`. `arg` is a visibility string ('private' | 'public') or
+ * `{ visibility = 'private', maxPlayers }`; seats outside the game's `players` range are left to the server default.
+ */
+export function roomRequest(game, arg = 'private') {
+  const opts = typeof arg === 'string' ? { visibility: arg } : arg && typeof arg === 'object' ? arg : {};
+  const body = { gameId: game?.id, visibility: opts.visibility === 'public' ? 'public' : 'private', settings: defaultSettings(game) };
+  const { min = 1, max = Infinity } = game?.players || {};
+  if (Number.isInteger(opts.maxPlayers) && opts.maxPlayers >= min && opts.maxPlayers <= max) body.maxPlayers = opts.maxPlayers;
+  return body;
+}
 
 /** `{ [key]: default }` from a manifest's host-settings schema. */
 export function defaultSettings(game) {
@@ -30,7 +43,7 @@ export default function useHostRoom(game) {
   const gameId = game?.id;
 
   const host = useCallback(
-    async (visibility = 'private') => {
+    async (arg = 'private') => {
       if (!gameId || lock.current) return;
       if (!auth.user) {
         if (auth.loading) {
@@ -47,7 +60,7 @@ export default function useHostRoom(game) {
       lock.current = true;
       setBusy(true);
       try {
-        const r = await api.post('/api/rooms', { gameId, visibility, settings: defaultSettings(game) });
+        const r = await api.post('/api/rooms', roomRequest(game, arg));
         if (!r || typeof r.code !== 'string' || !r.code) throw new Error('The server did not return a room code');
         navigate(paths.lobby(r.code));
       } catch (e) {

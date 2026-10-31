@@ -1,21 +1,19 @@
 import { useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import CodeSheet from '@/components/shell/nav/CodeSheet.jsx';
+import { radioKeyNav } from '@/components/shell/ui.jsx';
 import { featuredGame, getGame } from '@/games/registry.js';
 import { BRAND } from '@/platform/brand.js';
 import { paths } from '@/platform/paths.js';
+import { GameIcon } from '@/platform/home/GameArt.jsx';
 import GameHero from '@/platform/game/GameHero.jsx';
-import HowToPlay from '@/platform/game/HowToPlay.jsx';
 import HubIcon from '@/platform/game/HubIcon.jsx';
-import ModeCard from '@/platform/game/ModeCard.jsx';
-import TopPlayersCard from '@/platform/game/TopPlayersCard.jsx';
 import Unavailable from '@/platform/game/Unavailable.jsx';
-import YourStats from '@/platform/game/YourStats.jsx';
 import { themeVars } from '@/platform/game/color.js';
 import { useNotify } from '@/platform/game/notify.js';
 import useDocTitle from '@/platform/game/useDocTitle.js';
+import { defaultSeats, seatOptions } from '@/platform/game/seats.js';
 import useHostRoom from '@/platform/game/useHostRoom.js';
-import useOpenRooms from '@/platform/game/useOpenRooms.js';
 
 const Back = () => (
   <Link to={paths.hub()} className="hub-back">
@@ -23,67 +21,57 @@ const Back = () => (
   </Link>
 );
 
-/** "3 open", "20+ open", or nothing while loading / unreachable. */
-function openBadge(rooms, limit) {
-  if (!rooms) return null;
-  if (rooms.length === 0) return 'None yet';
-  return rooms.length >= limit ? `${limit}+ open` : `${rooms.length} open`;
-}
-
+/** Quick start: how many players -> Create table (a private room) -> the lobby, where friends are invited. */
 function LiveDetail({ game }) {
   const { host, busy } = useHostRoom(game);
   const [codeOpen, setCodeOpen] = useState(false);
-  const { rooms } = useOpenRooms(game.id, { limit: 20 });
-  const modes = { bots: true, friends: true, open: true, ...(game.modes || {}) };
-  const extras = (Array.isArray(game.extras) ? game.extras : []).filter((e) => e && e.path && e.label);
-  const hasSetup = typeof game.loaders?.offlineSetup === 'function';
+  const options = seatOptions(game.players);
+  const [seats, setSeats] = useState(() => defaultSeats(options));
 
   return (
-    <div className="hub-page hub-detail" style={themeVars(game.theme)}>
+    <div className="hub-page hub-detail hub-quick" style={themeVars(game.theme)}>
       <Back />
-      <GameHero game={game} />
+      <section className="hub-quick__card" aria-labelledby="hub-quick-title">
+        <header className="hub-quick__head">
+          <GameIcon game={game} size={64} />
+          <div className="hub-quick__titles">
+            <h1 id="hub-quick-title" className="hub-quick__title">
+              {game.name}
+            </h1>
+            {game.tagline && <p className="hub-quick__tagline">{game.tagline}</p>}
+          </div>
+        </header>
 
-      <div className="hub-detail__grid">
-        <div className="hub-detail__main">
-          <section aria-labelledby="hub-modes-h">
-            <h2 id="hub-modes-h" className="hub-section__title">
-              Ways to play
-            </h2>
-            <div className="hub-modes">
-              {modes.bots && hasSetup && (
-                <ModeCard variant="primary" icon="robot" title="Play with bots" text="Solo, no sign-in. Pick your rivals and go." to={paths.setup(game.id)} />
-              )}
-              {modes.friends && (
-                <ModeCard icon="users" title="Play with friends" text="Create a private room and share the code." onClick={() => host('private')} busy={busy} />
-              )}
-              {modes.open && (
-                <ModeCard icon="table" title="Open tables" text="Jump into a public game." to={paths.tables(game.id)} badge={openBadge(rooms, 20)} />
-              )}
-              {(modes.friends || modes.open) && <ModeCard icon="hash" title="Join with a code" text="Got a room code? Enter it here." onClick={() => setCodeOpen(true)} />}
-            </div>
-          </section>
-
-          {extras.length > 0 && (
-            <section aria-labelledby="hub-extras-h">
-              <h2 id="hub-extras-h" className="hub-section__title">
-                More from {game.name}
-              </h2>
-              <div className="hub-modes hub-modes--compact">
-                {extras.map((e) => (
-                  <ModeCard key={e.path} icon={e.icon || 'spark'} title={e.label} to={paths.extra(game.id, e.path)} />
-                ))}
-              </div>
-            </section>
-          )}
-
-          <HowToPlay steps={game.howToPlay} />
+        <div className="hub-quick__step">
+          <h2 id="hub-seats-h" className="hub-quick__label">
+            How many players?
+          </h2>
+          <div className="hub-quick__seats" role="radiogroup" aria-labelledby="hub-seats-h" onKeyDown={radioKeyNav}>
+            {options.map((n) => (
+              <button
+                key={n}
+                type="button"
+                role="radio"
+                aria-checked={n === seats}
+                className={`hub-quick__seat${n === seats ? ' is-on' : ''}`}
+                onClick={() => setSeats(n)}
+                disabled={busy}
+              >
+                {n}
+              </button>
+            ))}
+          </div>
         </div>
 
-        <aside className="hub-detail__side" aria-label={`${game.name} leaderboard and stats`}>
-          <YourStats game={game} />
-          <TopPlayersCard game={game} />
-        </aside>
-      </div>
+        <button type="button" className="hub-btn hub-btn--accent hub-btn--lg hub-btn--block" onClick={() => host({ maxPlayers: seats })} disabled={busy} aria-busy={busy}>
+          {busy ? 'Creating table...' : 'Create table'}
+        </button>
+        <p className="hub-faint hub-quick__hint">You get a code to share. Friends join, then you set the cash limit and start.</p>
+
+        <button type="button" className="hub-quick__join" onClick={() => setCodeOpen(true)}>
+          <HubIcon name="hash" size={16} /> Join with a code
+        </button>
+      </section>
 
       <CodeSheet open={codeOpen} onClose={() => setCodeOpen(false)} />
     </div>
@@ -121,7 +109,7 @@ function SoonDetail({ game }) {
   );
 }
 
-/** /games/:gameId: cover hero, ways to play, how to play, top players and your stats. */
+/** /games/:gameId: a live game is a quick-start card (players, create table); a coming-soon game a teaser. */
 export default function GameDetail() {
   const { gameId } = useParams();
   const game = getGame(gameId);

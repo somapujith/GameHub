@@ -4,18 +4,20 @@ import { buildBadgeContext, evaluateBadges } from './badges.js';
 import { fmtStat, resolveGameStats } from './gameStats.js';
 import { useApi, useApiReady } from './useApi.js';
 import { useAccount } from '@/components/shell/hooks.js';
+import { useProfile } from '@/components/shell/stores.js';
 
 /** Badges derived from the player's stats (rules live in badges.js). */
-export default function BadgeGrid({ games, user, profile, level }) {
+export default function BadgeGrid({ games, user, level }) {
   const { account } = useAccount();
+  const [profile] = useProfile();
   const ready = useApiReady();
   const friendsRes = useApi('/api/friends', { enabled: ready && account });
   const friends = friendsRes.status === 'ok' && Array.isArray(friendsRes.data?.friends) ? friendsRes.data.friends.length : null;
 
   const badges = useMemo(() => {
-    const perGame = games.map((g) => resolveGameStats({ user, profile, gameId: g.id })).filter(Boolean);
-    return evaluateBadges(buildBadgeContext({ perGame, profile, level, friends }));
-  }, [games, user, profile, level, friends]);
+    const perGame = games.map((g) => resolveGameStats({ user, gameId: g.id })).filter(Boolean);
+    return evaluateBadges(buildBadgeContext({ perGame, user, streak: profile.dailyStreak, level, friends }));
+  }, [games, user, profile.dailyStreak, level, friends]);
 
   const earned = badges.filter((b) => b.earned).length;
   return (

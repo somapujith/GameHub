@@ -23,6 +23,7 @@ const {
 
 const U1 = '00000000-0000-4000-8000-000000000001';
 const U2 = '00000000-0000-4000-8000-000000000002';
+const U3 = '00000000-0000-4000-8000-000000000003';
 
 const room = (over = {}) => ({
   code: 'ABCD23',
@@ -34,9 +35,9 @@ const room = (over = {}) => ({
   settings: { goal: 70000 },
   createdAt: 1_760_000_000_000,
   players: [
-    { id: U1, name: 'Host', isBot: false },
-    { id: U2, name: 'Guest', isBot: false, left: true },
-    { id: 'bot_x', name: 'Chai Uncle', isBot: true },
+    { id: U1, name: 'Host' },
+    { id: U2, name: 'Guest', left: true },
+    { id: U3, name: 'Third' },
   ],
   ...over,
 });
@@ -90,7 +91,7 @@ describe('open rooms query', () => {
 });
 
 describe('row mapping', () => {
-  it('roomRow: counts bots as seats, lists only present humans as members', () => {
+  it('roomRow: counts every seat, lists only present players as members', () => {
     const row = roomRow(room());
     expect(row).toMatchObject({
       code: 'ABCD23',
@@ -102,7 +103,7 @@ describe('row mapping', () => {
       playerCount: 3,
       maxPlayers: 4,
       settings: { goal: 70000 },
-      memberIds: [U1],
+      memberIds: [U1, U3],
     });
     expect(roomRow(room({ hostId: 'not-a-uuid' })).hostId).toBeNull();
   });
@@ -176,7 +177,7 @@ describe('database access', () => {
     const [, text, params] = queryMock.mock.calls[0];
     expect(text).toBe(UPSERT_ROOM_SQL);
     expect(text).toMatch(/ON CONFLICT \(code\) DO UPDATE/);
-    expect(params).toEqual(['ABCD23', 'hyderabad-tycoon', U1, 'Host', 'public', 'lobby', 3, 4, '{"goal":70000}', [U1], 1_760_000_000_000]);
+    expect(params).toEqual(['ABCD23', 'hyderabad-tycoon', U1, 'Host', 'public', 'lobby', 3, 4, '{"goal":70000}', [U1, U3], 1_760_000_000_000]);
     await deleteRoomRow(env, 'ABCD23');
     expect(queryMock.mock.calls[1].slice(1)).toEqual(['DELETE FROM rooms WHERE code = $1', ['ABCD23']]);
   });

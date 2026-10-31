@@ -1,34 +1,28 @@
 // Dice engine (CONTRACT section 3c). Pure, deterministic, no I/O. Runs in the browser AND the Worker.
 //
-// `lucky` (default) applies a small, disclosed, bounded bias to the six single-die outcomes.
-// `fair` gives each face 1/6. Saved two-die games keep their 36 outcomes. The engine injects
-// `ctx = { previewRent(state, tileId, diceSum) }` so this module never imports engine.js.
+// There is exactly ONE die. `lucky` (default) applies a small, disclosed, bounded bias to the six faces.
+// `fair` gives each face 1/6. The engine injects `ctx = { previewRent(state, tileId, diceSum) }` so this
+// module never imports engine.js.
 //
 // Player fields read (the engine maintains them):
-//   cash, pos, jailTurns, bankrupt      existing fields
-//   doubles          doubles thrown so far in the CURRENT turn (0 after a non-double, reset each turn)
-//   rollsSinceDouble consecutive non-double rolls (reset to 0 by a double, +1 by a non-double)
+//   cash, pos, jailTurns, bankrupt   existing fields
+//   sixes            sixes thrown so far in the CURRENT turn (0 after a non-six, reset each turn)
+//   rollsSinceSix    consecutive non-six rolls (reset to 0 by a six, +1 by a non-six)
 //   rentStreak       consecutive turns in which the player paid rent >= DICE_RULES.mercy.minRent
-// State fields read: cfg.dice, cfg.diceCount, owners[28], levels[28], mortgaged[28] (optional), players[], rng (written by rollDice only).
+// State fields read: cfg.dice, owners[BOARD_SIZE], levels[BOARD_SIZE], mortgaged[BOARD_SIZE] (optional), players[], rng (written by rollDice only).
 
-import { BOARD_SIZE, JAIL_TILE, START_TILE, TILES, isBuyable, mortgageValue, upgradeCost } from './board.js';
+import { BOARD_SIZE, START_TILE, TILES, isBuyable, mortgageValue, upgradeCost } from './board.js';
 import { nextFloat } from './rng.js';
 
 export const DICE_MODES = ['lucky', 'fair'];
 
-/** The 36 dice combos as [a, b] pairs, index = (a - 1) * 6 + (b - 1). */
-export const COMBOS = Array.from({ length: 36 }, (_, i) => [Math.floor(i / 6) + 1, (i % 6) + 1]);
+/** The six faces of the die as one-element arrays (the shape of `state.dice` and of dice events), index = face - 1. */
+export const FACES = [[1], [2], [3], [4], [5], [6]];
 
-// Missing diceCount belongs to a saved game from before single-die play.
-const SINGLE_COMBOS = [[1], [2], [3], [4], [5], [6]];
-const outcomes = (state) => state?.cfg?.diceCount === 1 ? SINGLE_COMBOS : COMBOS;
-const totalOf = (values) => values.reduce((sum, value) => sum + value, 0);
-const bonusOf = (values) => values.length === 1 ? values[0] === 6 : values[0] === values[1];
+const isSix = (values) => values[0] === 6;
 
-/** Fair probability of each dice total 2..12 (1/36 .. 6/36 .. 1/36). */
-export const FAIR_TOTAL_PROBS = Object.fromEntries(
-  Array.from({ length: 11 }, (_, k) => [k + 2, (6 - Math.abs(k + 2 - 7)) / 36]),
-);
+/** Fair probability of each face 1..6. */
+export const FAIR_TOTAL_PROBS = Object.fromEntries(FACES.map(([face]) => [face, 1 / 6]));
 
 /** Names a rule can have in `assist` / `active`. */
 export const ASSIST_NAMES = ['comeback', 'mercy', 'pity', 'antibust'];
@@ -40,17 +34,17 @@ export const DICE_RULES = {
   comeback: { below: 0.8, strongBelow: 0.5, boost: 1.15, strongBoost: 1.25, rentShare: 0.25, penalty: 0.85 },
   // (2) mercy: after `streak` rent-paying turns (rent >= minRent), landings on an opponent tile asking >= minRent get x`mult`.
   mercy: { streak: 2, minRent: 1000, mult: 0.7 },
-  // (3) pity doubles: after `rolls` non-double rolls in a row, doubles get x`mult`.
+  // (3) pity six: after `rolls` non-six rolls in a row, a six gets x`mult`.
   pity: { rolls: 6, mult: 1.5 },
-  // (4) anti-bust: after `doubles` doubles in the same turn, doubles get x`mult` (the clamp floors it at `clamp[0]`).
-  antibust: { doubles: 2, mult: 0.5 },
-  // every combo's combined multiplier is clamped to this range BEFORE normalising.
+  // (4) anti-streak: after `sixes` sixes in the same turn, a six gets x`mult` (the clamp floors it at `clamp[0]`).
+  antibust: { sixes: 2, mult: 0.5 },
+  // every face's combined multiplier is clamped to this range BEFORE normalising.
   clamp: [0.6, 1.5],
   // if the final distribution is within this total-variation distance of fair, `assist` is reported as null.
   minShift: 0.005,
 };
 
-const ONES = (state) => new Array(outcomes(state).length).fill(1);
+const ONES = () => new Array(FACES.length).fill(1);
 const clamp = (x, lo, hi) => (x < lo ? lo : x > hi ? hi : x);
 
 // ---------------------------------------------------------------------------------------------
@@ -93,7 +87,7 @@ function rentAt(state, ctx, tile, sum) {
   return Number.isFinite(r) && r > 0 ? r : 0;
 }
 
-/** Classify the destination of a combo: 'good' (unowned buyable / START / own tile), 'opp' (opponent tile, mortgage-free) or 'other'. */
+/** Classify the destination of a face: 'good' (unowned buyable / START / own tile), 'opp' (opponent tile, mortgage-free) or 'other'. */
 function classify(state, playerId, dest) {
   if (dest === START_TILE) return 'good';
   const tile = TILES[dest];
@@ -111,37 +105,35 @@ function classify(state, playerId, dest) {
 // ---------------------------------------------------------------------------------------------
 
 /**
- * Per-rule multiplier arrays (36 each, 1 = unchanged) or null when the rule's condition does not hold.
- * Jailed players only get pity (a jailed player moves only on doubles, so landing-based rules are moot,
- * and the three-doubles rule cannot apply).
+ * Per-rule multiplier arrays (6 each, 1 = unchanged) or null when the rule's condition does not hold.
+ * Jailed players only get pity (a jailed player moves only on a six, so landing-based rules are moot).
  */
 function ruleMultipliers(state, playerId, ctx) {
-  const combos = outcomes(state);
   const rules = { comeback: null, mercy: null, pity: null, antibust: null };
   const p = playerOf(state, playerId);
   if (!p) return rules;
   const jailed = (p.jailTurns || 0) > 0;
 
-  // (3) pity doubles: after 6 non-double rolls in a row doubles x1.5.
-  if ((p.rollsSinceDouble || 0) >= DICE_RULES.pity.rolls) {
-    rules.pity = combos.map((values) => (bonusOf(values) ? DICE_RULES.pity.mult : 1));
+  // (3) pity six: after 6 non-six rolls in a row a six x1.5.
+  if ((p.rollsSinceSix || 0) >= DICE_RULES.pity.rolls) {
+    rules.pity = FACES.map((values) => (isSix(values) ? DICE_RULES.pity.mult : 1));
   }
   if (jailed) return rules;
 
-  // (4) anti-bust: after two doubles in the same turn doubles x0.5 (floored to 0.6 by the clamp).
-  if ((p.doubles || 0) >= DICE_RULES.antibust.doubles) {
-    rules.antibust = combos.map((values) => (bonusOf(values) ? DICE_RULES.antibust.mult : 1));
+  // (4) anti-streak: after two sixes in the same turn a six x0.5 (floored to 0.6 by the clamp).
+  if ((p.sixes || 0) >= DICE_RULES.antibust.sixes) {
+    rules.antibust = FACES.map((values) => (isSix(values) ? DICE_RULES.antibust.mult : 1));
   }
 
   const boost = comebackBoost(state, playerId);
   const mercyOn = (p.rentStreak || 0) >= DICE_RULES.mercy.streak;
   if (!boost && !mercyOn) return rules;
 
-  const comeback = boost ? ONES(state) : null;
-  const mercy = mercyOn ? ONES(state) : null;
+  const comeback = boost ? ONES() : null;
+  const mercy = mercyOn ? ONES() : null;
   const pos = p.pos || 0;
-  for (let i = 0; i < combos.length; i++) {
-    const sum = totalOf(combos[i]);
+  for (let i = 0; i < FACES.length; i++) {
+    const sum = FACES[i][0];
     const dest = (pos + sum) % BOARD_SIZE;
     const kind = classify(state, playerId, dest);
     if (kind === 'good') {
@@ -165,7 +157,7 @@ function normalise(mults) {
   return mults.map((m) => m / sum);
 }
 
-/** Total-variation distance (0..1) between a 36-weight distribution and the fair one. */
+/** Total-variation distance (0..1) between a 6-weight distribution and the fair one. */
 function shiftFromFair(weights) {
   let s = 0;
   for (const w of weights) s += Math.abs(w - 1 / weights.length);
@@ -173,15 +165,15 @@ function shiftFromFair(weights) {
 }
 
 /**
- * Multipliers before normalising: `{ raw, clamped, rules }`. `raw` = product of every active rule per combo,
+ * Multipliers before normalising: `{ raw, clamped, rules }`. `raw` = product of every active rule per face,
  * `clamped` = `raw` clamped to [0.6, 1.5] (what `diceWeights` normalises), `rules` = per-rule arrays or null.
  * In `fair` mode everything is 1.
  */
 export function rawMultipliers(state, playerId, ctx) {
   const rules = { comeback: null, mercy: null, pity: null, antibust: null };
-  if (state?.cfg?.dice === 'fair') return { raw: ONES(state), clamped: ONES(state), rules };
+  if (state?.cfg?.dice === 'fair') return { raw: ONES(), clamped: ONES(), rules };
   Object.assign(rules, ruleMultipliers(state, playerId, ctx));
-  const raw = ONES(state);
+  const raw = ONES();
   for (const name of ASSIST_NAMES) {
     if (!rules[name]) continue;
     for (let i = 0; i < raw.length; i++) raw[i] *= rules[name][i];
@@ -190,15 +182,14 @@ export function rawMultipliers(state, playerId, ctx) {
 }
 
 /**
- * `{ weights:number[36], assist, active, shift }`. Weights sum to 1. `assist` = the most influential rule
- * ('comeback' | 'mercy' | 'pity' | 'antibust') or null when the distribution is < 0.5 pp (total variation) from fair.
+ * `{ weights:number[6], assist, active, shift }`. Weights sum to 1 (index = face - 1). `assist` = the most influential
+ * rule ('comeback' | 'mercy' | 'pity' | 'antibust') or null when the distribution is < 0.5 pp (total variation) from fair.
  * `active` = every rule that actually moved the distribution (most influential first; the engine resets
  * `rentStreak` after a roll in which 'mercy' was active). `shift` = total-variation distance from fair.
  */
 export function diceWeights(state, playerId, ctx) {
   if (state?.cfg?.dice === 'fair') {
-    const count = outcomes(state).length;
-    return { weights: new Array(count).fill(1 / count), assist: null, active: [], shift: 0 };
+    return { weights: new Array(FACES.length).fill(1 / FACES.length), assist: null, active: [], shift: 0 };
   }
   const { clamped, rules } = rawMultipliers(state, playerId, ctx);
   const weights = normalise(clamped);
@@ -217,7 +208,7 @@ export function diceWeights(state, playerId, ctx) {
 }
 
 /**
- * Pick a combo index (0..35) from `weights` with one uniform `u` in [0, 1). Pure; zero-weight combos are never returned.
+ * Pick a face index (0..5) from `weights` with one uniform `u` in [0, 1). Pure; zero-weight faces are never returned.
  */
 export function sampleCombo(weights, u) {
   let total = 0;
@@ -235,55 +226,40 @@ export function sampleCombo(weights, u) {
 }
 
 /**
- * Roll the dice for `playerId`: ONE `nextFloat(state)` draw (mutates `state.rng` in place) sampled against
- * `diceWeights`. Returns `{ values:[a,b], assist, active }`.
+ * Roll the die for `playerId`: ONE `nextFloat(state)` draw (mutates `state.rng` in place) sampled against
+ * `diceWeights`. Returns `{ values:[d], assist, active }`.
  */
 export function rollDice(state, playerId, ctx) {
   const { weights, assist, active } = diceWeights(state, playerId, ctx);
   const idx = sampleCombo(weights, nextFloat(state));
-  return { values: [...outcomes(state)[idx]], assist, active };
+  return { values: [...FACES[idx]], assist, active };
 }
 
 /**
- * `{ totals:{2..12:p}, doubles:p, assist }` for the player's next roll (same weights as `rollDice`).
+ * `{ totals:{1..6:p}, six:p, assist }` for the player's next roll (same weights as `rollDice`).
  */
 export function diceOdds(state, playerId, ctx) {
   const { weights, assist } = diceWeights(state, playerId, ctx);
-  const combos = outcomes(state);
   const totals = {};
-  for (const values of combos) totals[totalOf(values)] = 0;
-  let doubles = 0;
-  let bonus = 0;
-  for (let i = 0; i < combos.length; i++) {
-    const values = combos[i];
-    totals[totalOf(values)] += weights[i];
-    if (bonusOf(values)) bonus += weights[i];
-    if (values.length === 2 && bonusOf(values)) doubles += weights[i];
-  }
-  return state?.cfg?.diceCount === 1 ? { totals, doubles, bonus, assist } : { totals, doubles, assist };
+  for (let i = 0; i < FACES.length; i++) totals[FACES[i][0]] = weights[i];
+  return { totals, six: weights[FACES.length - 1], assist };
 }
 
 /**
- * `number[28]`: probability that the player's next roll ENDS on each tile (same weights as `rollDice`).
- * Jailed player: moves only on doubles, so P(stay) = 1 - P(doubles) stays on their tile (14) and the rest is
- * spread by the doubles totals. A third double in a turn (doubles already 2) sends the player to jail (tile 14).
+ * `number[BOARD_SIZE]`: probability that the player's next roll ENDS on each tile (same weights as `rollDice`).
+ * Jailed player: moves only on a six, so P(stay) = 1 - P(six) stays on their tile (JAIL_TILE) and a six lands 6 ahead.
+ * A roll that lands on the Go-to-Jail square is reported on that square (the engine then jails the player).
  */
 export function landingOdds(state, playerId, ctx) {
   const out = new Array(BOARD_SIZE).fill(0);
   const p = playerOf(state, playerId);
   if (!p) return out;
   const { weights } = diceWeights(state, playerId, ctx);
-  const combos = outcomes(state);
   const pos = p.pos || 0;
   const jailed = (p.jailTurns || 0) > 0;
-  const thirdDouble = !jailed && (p.doubles || 0) >= 2;
-  for (let i = 0; i < combos.length; i++) {
-    const sum = totalOf(combos[i]);
-    const isDouble = bonusOf(combos[i]);
-    let dest;
-    if (jailed) dest = isDouble ? (pos + sum) % BOARD_SIZE : pos;
-    else if (thirdDouble && isDouble) dest = JAIL_TILE;
-    else dest = (pos + sum) % BOARD_SIZE;
+  for (let i = 0; i < FACES.length; i++) {
+    const sum = FACES[i][0];
+    const dest = jailed && !isSix(FACES[i]) ? pos : (pos + sum) % BOARD_SIZE;
     out[dest] += weights[i];
   }
   return out;

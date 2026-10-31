@@ -1,18 +1,25 @@
-// The local player's properties grouped by colour set, with set progress + multiplier and per-tile actions:
-// Build, Sell building, Mortgage, Unmortgage (each shown only when session.options lists that tile).
-import { BuildingArt } from '@/components/art/index.js';
+// The Manage tab of the control panel: my properties grouped by colour set, with set progress + multiplier and
+// per-tile actions Build, Sell building, Mortgage, Unmortgage (each shown only when session.options lists that tile,
+// and disabled while the snatch window is open).
 import { HOTEL_LEVEL, LEVEL_NAMES, MAX_LEVEL, TILES, mortgageValue, unmortgageCost } from '@shared/board.js';
 import { formatINR } from '@shared/format.js';
-import Sheet from './ui/Sheet.jsx';
-import Button from './ui/Button.jsx';
-import Icon from './ui/Icon.jsx';
-import Pill from './ui/Pill.jsx';
-import TileChip, { LevelPips, SetDots } from './ui/TileChip.jsx';
-import { canUpgradeSafe, diceSum, ownedBy, previewRentSafe, setProgress, useStateLike } from './ui/helpers.js';
+import { PanelButton } from './ActionBar.jsx';
+import { dieValue } from './Dice.jsx';
+import { canUpgradeSafe, previewRentSafe, setProgress, useStateLike } from './ui/helpers.js';
+import '@/styles/controlpanel.css';
 
 const X = '×';
 
-export default function MyProperties({ session, open, onClose, onOpenTile, onOpenTrade }) {
+/** Building level as small squares (four houses, then a hotel). */
+export function BuildPips({ level = 0 }) {
+  return (
+    <span className={`cp-pips${level >= HOTEL_LEVEL ? ' is-hotel' : ''}`} role="img" aria-label={LEVEL_NAMES[level] || ''}>
+      {Array.from({ length: MAX_LEVEL }, (_, i) => <i key={i} className={i < level ? 'is-on' : ''} />)}
+    </span>
+  );
+}
+
+export default function MyProperties({ session, onOpenTile }) {
   const state = useStateLike(session);
   const me = session.me;
   const o = session.options || {};
@@ -23,147 +30,121 @@ export default function MyProperties({ session, open, onClose, onOpenTile, onOpe
   const mort = index(o.mortgage);
   const unmort = index(o.unmortgage);
   const setInfo = new Map((o.sets || []).map((s) => [s.group, s]));
-  const sum = diceSum(session);
+  const sum = dieValue(session);
+  const locked = session.view?.phase === 'snatch'; // the engine rejects building and mortgages during a snatch window
+  const off = session.busy || locked;
   const nameOfOwner = (id) => (state.owners[id] ? state.players.find((p) => p.id === state.owners[id])?.name : null);
   const act = (type, tile) => () => session.dispatch({ type, tile });
 
-  return (
-    <Sheet open={open} onClose={onClose} title="My properties" className="hg-myprops" desktop="drawer">
-      {o.trade?.canOffer && onOpenTrade ? (
-        <Button variant="dark" block className="hg-myprops-trade" icon={<Icon name="swap" size={18} />} onClick={onOpenTrade}>
-          Propose a trade
-        </Button>
-      ) : null}
+  if (rows.length === 0) {
+    return (
+      <div className="cp-empty">
+        <b>No properties yet.</b>
+        <span>Land on a free tile and buy it to start your empire.</span>
+      </div>
+    );
+  }
 
-      {rows.length === 0 ? (
-        <div className="hg-empty-state">
-          <span aria-hidden="true">{'🏠'}</span>
-          <p>No properties yet.</p>
-          <small>Land on a free tile and buy it to start your empire.</small>
-        </div>
-      ) : (
-        <ul className="hg-setlist">
-          {rows.map((r) => {
-            const info = setInfo.get(r.set.id);
-            return (
-              <li key={r.set.id} className="hg-setcard" style={{ '--sc': r.set.color }}>
-                <div className="hg-setcard-head">
-                  <i className="hg-setdot" />
-                  <b>{r.owned.length}/{r.total} {r.set.name}</b>
-                  <SetDots owned={r.owned.length} total={r.total} color={r.set.color} />
-                  {info && info.multiplier > 1 ? (
-                    <Pill tone="gold" title="Rent multiplier on empty plots">{X}{info.multiplier} rent</Pill>
-                  ) : null}
-                  {r.full ? <span className="hg-setprog is-full">Full set</span> : null}
-                </div>
-                {!r.full && r.set.kind === 'property' ? (
-                  <p className="hg-hint">
-                    Missing: {r.missing.map((t) => `${TILES[t].short}${nameOfOwner(t) ? ` (${nameOfOwner(t)})` : ''}`).join(', ')}
-                  </p>
-                ) : null}
-                <ul className="hg-prows">
-                  {r.owned.map((id) => {
-                    const tile = TILES[id];
-                    const level = state.levels[id] || 0;
-                    const isProp = tile.type === 'property';
-                    const mortgaged = !!state.mortgaged?.[id];
-                    const b = build.get(id);
-                    const s = sell.get(id);
-                    const m = mort.get(id);
-                    const u = unmort.get(id);
-                    const any = b || s || m || u;
-                    let why = '';
-                    if (!any) {
-                      if (isProp && !mortgaged) {
-                        const c = canUpgradeSafe(session.view, me, id);
-                        why = level >= MAX_LEVEL ? 'Fully built' : c?.ok ? (session.busy ? 'Wait…' : 'Your turn only') : c?.reason || '';
-                      } else if (mortgaged) {
-                        why = 'Needs your turn and enough cash to unmortgage';
-                      }
+  return (
+    <>
+      {locked ? <p className="cp-note" role="status">Snatch window open. Building and mortgages wait a moment.</p> : null}
+      <ul className="cp-sets">
+        {rows.map((r) => {
+          const info = setInfo.get(r.set.id);
+          return (
+            <li key={r.set.id} className="cp-set" style={{ '--sc': r.set.color }}>
+              <header className="cp-set__head">
+                <i className="cp-set__chip" />
+                <b>{r.owned.length}/{r.total} {r.set.name}</b>
+                {info && info.multiplier > 1 ? <span className="cp-tag" title="Rent multiplier on empty plots">{X}{info.multiplier} rent</span> : null}
+                {r.full ? <span className="cp-tag is-full">Full set</span> : null}
+              </header>
+              {!r.full && r.set.kind === 'property' ? (
+                <p className="cp-set__missing">
+                  Missing: {r.missing.map((t) => `${TILES[t].short}${nameOfOwner(t) ? ` (${nameOfOwner(t)})` : ''}`).join(', ')}
+                </p>
+              ) : null}
+              <ul className="cp-props">
+                {r.owned.map((id) => {
+                  const tile = TILES[id];
+                  const level = state.levels[id] || 0;
+                  const isProp = tile.type === 'property';
+                  const mortgaged = !!state.mortgaged?.[id];
+                  const b = build.get(id);
+                  const s = sell.get(id);
+                  const m = mort.get(id);
+                  const u = unmort.get(id);
+                  const any = b || s || m || u;
+                  let why = '';
+                  if (!any) {
+                    if (locked) {
+                      why = 'Wait for the snatch window to close';
+                    } else if (isProp && !mortgaged) {
+                      const c = canUpgradeSafe(session.view, me, id);
+                      why = level >= MAX_LEVEL ? 'Fully built' : c?.ok ? (session.busy ? 'Wait…' : 'Your turn only') : c?.reason || '';
+                    } else if (mortgaged) {
+                      why = 'Needs your turn and enough cash to unmortgage';
                     }
-                    return (
-                      <li key={id} className={`hg-prow${mortgaged ? ' is-mort' : ''}`}>
-                        <button type="button" className="hg-prow-main" onClick={() => onOpenTile?.(id)}>
-                          <span className="hg-prow-art">
-                            {isProp ? <BuildingArt level={level} color={r.set.color} size={44} /> : <span className="hg-prow-emoji" aria-hidden="true">{tile.emoji}</span>}
-                          </span>
-                          <span className="hg-prow-txt">
-                            <b>{tile.name}{mortgaged ? <em className="hg-mortflag">Mortgaged</em> : null}</b>
-                            <small>
-                              {isProp ? (<><LevelPips level={level} color={r.set.color} /> {LEVEL_NAMES[level]}{' · '}</>) : null}
-                              {mortgaged ? 'no rent' : `rent ${formatINR(previewRentSafe(state, id, sum))}`}
-                            </small>
-                            <small className="hg-prow-mort">
-                              {mortgaged ? `Unmortgage costs ${formatINR(unmortgageCost(tile))}` : `Mortgage value ${formatINR(mortgageValue(tile))}`}
-                            </small>
-                          </span>
-                        </button>
-                        {any ? (
-                          <div className="hg-prow-actions">
-                            {b ? (
-                              <Button
-                                variant="gold"
-                                size="sm"
-                                className={level + 1 === HOTEL_LEVEL ? 'hg-btn--hotel' : ''}
-                                disabled={session.busy}
-                                onClick={act('UPGRADE', id)}
-                                aria-label={`Build ${LEVEL_NAMES[Math.min(MAX_LEVEL, level + 1)]} on ${tile.name} for ${formatINR(b.cost)}`}
-                              >
-                                <Icon name="upgrade" size={16} />
-                                {level + 1 === HOTEL_LEVEL ? 'Build hotel' : 'Build'} {formatINR(b.cost)}
-                              </Button>
-                            ) : null}
-                            {s ? (
-                              <Button variant="dark" size="sm" disabled={session.busy} onClick={act('SELL_BUILDING', id)}>
-                                Sell building +{formatINR(s.refund)}
-                              </Button>
-                            ) : null}
-                            {m ? (
-                              <Button variant="dark" size="sm" disabled={session.busy} onClick={act('MORTGAGE', id)}>
-                                Mortgage +{formatINR(m.value)}
-                              </Button>
-                            ) : null}
-                            {u ? (
-                              <Button variant="green" size="sm" disabled={session.busy} onClick={act('UNMORTGAGE', id)}>
-                                Unmortgage {formatINR(u.cost)}
-                              </Button>
-                            ) : null}
-                          </div>
-                        ) : why ? (
-                          <p className="hg-prow-why">{why}</p>
-                        ) : null}
-                      </li>
-                    );
-                  })}
-                </ul>
-              </li>
-            );
-          })}
-        </ul>
-      )}
-    </Sheet>
-  );
-}
-
-/** Compact version for the desktop sidebar: chips + a "Manage" button. */
-export function MyPropertiesStrip({ session, onOpenTile, onManage }) {
-  const state = useStateLike(session);
-  const owned = ownedBy(state.owners, session.me);
-  return (
-    <section className="hg-mystrip" aria-label="My properties">
-      <header className="hg-log-head">
-        <h2>My properties <span className="hg-count">{owned.length}</span></h2>
-        <Button variant="ghost" size="sm" onClick={onManage}>Manage</Button>
-      </header>
-      {owned.length === 0 ? (
-        <p className="hg-empty">None yet. Buy your first tile!</p>
-      ) : (
-        <div className="hg-chips">
-          {owned.map((id) => (
-            <TileChip key={id} tileId={id} level={state.levels[id] || 0} mortgaged={!!state.mortgaged?.[id]} onClick={onOpenTile} />
-          ))}
-        </div>
-      )}
-    </section>
+                  }
+                  return (
+                    <li key={id} className={`cp-prop${mortgaged ? ' is-mort' : ''}`}>
+                      <button type="button" className="cp-prop__main" onClick={() => onOpenTile?.(id)}>
+                        <span className="cp-prop__name">
+                          {tile.name}
+                          {mortgaged ? <em className="cp-flag">Mortgaged</em> : null}
+                        </span>
+                        <small className="cp-prop__meta">
+                          {isProp ? (<><BuildPips level={level} /> {LEVEL_NAMES[level]}{' · '}</>) : null}
+                          {mortgaged ? 'no rent' : `rent ${formatINR(previewRentSafe(state, id, sum))}`}
+                          {' · '}
+                          {mortgaged ? `lift for ${formatINR(unmortgageCost(tile))}` : `mortgage ${formatINR(mortgageValue(tile))}`}
+                        </small>
+                      </button>
+                      {any ? (
+                        <div className="cp-prop__acts">
+                          {b ? (
+                            <PanelButton
+                              tone="gold"
+                              size="sm"
+                              disabled={off}
+                              onClick={act('UPGRADE', id)}
+                              aria-label={`Build ${LEVEL_NAMES[Math.min(MAX_LEVEL, level + 1)]} on ${tile.name} for ${formatINR(b.cost)}`}
+                            >
+                              {level + 1 === HOTEL_LEVEL ? 'Build hotel' : 'Build'} {formatINR(b.cost)}
+                            </PanelButton>
+                          ) : null}
+                          {s ? (
+                            <PanelButton
+                              size="sm"
+                              disabled={off}
+                              onClick={act('SELL_BUILDING', id)}
+                              aria-label={`Sell a building on ${tile.name} for ${formatINR(s.refund)}`}
+                            >
+                              Sell +{formatINR(s.refund)}
+                            </PanelButton>
+                          ) : null}
+                          {m ? (
+                            <PanelButton size="sm" disabled={off} onClick={act('MORTGAGE', id)}>
+                              Mortgage +{formatINR(m.value)}
+                            </PanelButton>
+                          ) : null}
+                          {u ? (
+                            <PanelButton tone="green" size="sm" disabled={off} onClick={act('UNMORTGAGE', id)}>
+                              Unmortgage {formatINR(u.cost)}
+                            </PanelButton>
+                          ) : null}
+                        </div>
+                      ) : why ? (
+                        <p className="cp-prop__why">{why}</p>
+                      ) : null}
+                    </li>
+                  );
+                })}
+              </ul>
+            </li>
+          );
+        })}
+      </ul>
+    </>
   );
 }

@@ -2,9 +2,8 @@ import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import {
   fieldOptions,
   formatValue,
+  lobbyFields,
   resolveSettings,
-  schemaFields,
-  seatBounds,
   settingsChips,
   settingsKey,
   settingsMessage,
@@ -46,7 +45,7 @@ function Segmented({ label, options, value, onPick, disabled }) {
   );
 }
 
-export function Stepper({ label, valueText, onMinus, onPlus, minusOff, plusOff, disabled }) {
+function Stepper({ label, valueText, onMinus, onPlus, minusOff, plusOff, disabled }) {
   return (
     <div className="ho-stepper" role="group" aria-label={label}>
       <button type="button" className="ho-stepper__btn" onClick={onMinus} disabled={disabled || minusOff} aria-label={`Decrease ${label}`}>
@@ -66,11 +65,11 @@ export function Stepper({ label, valueText, onMinus, onPlus, minusOff, plusOff, 
 const isCompact = (options) => options.length <= 3 && options.reduce((n, o) => n + String(o.label ?? '').length, 0) <= 26;
 
 /** One schema field, rendered by its `type`. `onChange(value)` / `onStep(dir)` are the host's edits. */
-export function SettingField({ field, value, onChange, onStep, disabled }) {
+export function SettingField({ field, value, onChange, onStep, disabled, hideHelp = false }) {
   const id = useId();
   const options = fieldOptions(field);
-  const helpId = field.help ? `${id}-help` : undefined;
-  const help = field.help ? (
+  const helpId = field.help && !hideHelp ? `${id}-help` : undefined;
+  const help = field.help && !hideHelp ? (
     <p className="ho-help" id={helpId}>
       {field.help}
     </p>
@@ -144,20 +143,23 @@ export function SettingField({ field, value, onChange, onStep, disabled }) {
 }
 
 /**
- * The room's game settings, rendered from the game's `manifest.settings` schema.
- *  - host: one control per field (segmented / stepper / toggle) plus "Max players" within `game.players`
- *  - everyone else: `game.summarize(settings)` and read-only chips
- * Props: `game` (manifest or null), `settings` (= room.settings), `maxPlayers`, `playerCount`, `isHost`, `disabled`,
- * `onSend(msg)` sends the FULL `{t:'settings', settings}`, `onMaxPlayers(n)`, `errorId` (rolls the optimistic UI back
- * when the server rejects a change).
+ * The room's game settings, rendered from the game's `manifest.settings` schema, narrowed to the keys in its optional
+ * `manifest.lobbySettings` (the rest keep their defaults and are never shown; no field = every setting).
+ *  - host: one control per shown field (segmented / stepper / toggle)
+ *  - everyone else: `game.summarize(settings)` (read-only)
+ * Both see the game's optional `tableRules` string as one small muted line.
+ * Props: `game` (manifest or null), `settings` (= room.settings), `isHost`, `disabled`,
+ * `onSend(msg)` sends the FULL `{t:'settings', settings}` (hidden fields included, at their current values),
+ * `errorId` (rolls the optimistic UI back when the server rejects a change).
+ * A panel with a single shown field has no heading of its own: the field's label is the title.
  */
-export default function SettingsPanel({ game, settings, maxPlayers, playerCount, isHost, disabled, onSend, onMaxPlayers, errorId }) {
+export default function SettingsPanel({ game, settings, isHost, disabled, onSend, errorId }) {
   const schema = game && game.settings;
-  const fields = useMemo(() => schemaFields(schema), [schema]);
+  const fields = useMemo(() => lobbyFields(game), [game]);
+  const solo = fields.length === 1;
   const server = useMemo(() => resolveSettings(schema, settings), [schema, settings]);
   const serverKey = settingsKey(schema, settings);
   const [draft, setDraft] = useState(null);
-  const [seats, setSeats] = useState(null);
   const timer = useRef(null);
   const settle = useRef(null);
   const effRef = useRef(server);
@@ -174,16 +176,12 @@ export default function SettingsPanel({ game, settings, maxPlayers, playerCount,
   useEffect(() => {
     if (!timer.current) setDraft(null);
   }, [serverKey]);
-  useEffect(() => {
-    setSeats(null);
-  }, [maxPlayers]);
 
   // server rejected something: roll back
   useEffect(() => {
     if (!errorId) return;
     clearTimers();
     setDraft(null);
-    setSeats(null);
   }, [errorId]);
 
   const commit = useCallback(
@@ -205,38 +203,52 @@ export default function SettingsPanel({ game, settings, maxPlayers, playerCount,
   );
 
   const eff = draft || server;
-  const seatCount = seats ?? maxPlayers;
-  const seatsKnown = typeof seatCount === 'number';
+  const rules = game && typeof game.tableRules === 'string' && game.tableRules ? (
+    <p className="ho-rules">
+      <span>Table rules</span> {game.tableRules}
+    </p>
+  ) : null;
 
   if (!isHost) {
+    const chips = solo ? [] : settingsChips(fields, settings);
     return (
       <section className="ho-card ho-settings" aria-label="Game settings">
-        <div className="ho-card__head">
-          <h2 className="ho-h2">Game settings</h2>
-          <span className="ho-muted">Set by the host</span>
-        </div>
+        {solo ? (
+          <div className="ho-card__head">
+            <div className="ho-field__label">{fields[0].label}</div>
+            <span className="ho-muted">Set by the host</span>
+          </div>
+        ) : (
+          <div className="ho-card__head">
+            <h2 className="ho-h2">Game settings</h2>
+            <span className="ho-muted">Set by the host</span>
+          </div>
+        )}
         <p className="ho-summary" aria-live="polite">
           {summarizeSettings(game, settings) || 'The host has not changed anything yet.'}
         </p>
-        <ul className="ho-chiprow" aria-label="Settings summary">
-          {settingsChips(schema, settings).map((c) => (
-            <li key={c} className="ho-chip ho-chip--static">
-              {c}
-            </li>
-          ))}
-          {maxPlayers ? <li className="ho-chip ho-chip--static">{`Up to ${maxPlayers} players`}</li> : null}
-        </ul>
+        {chips.length > 0 && (
+          <ul className="ho-chiprow" aria-label="Settings summary">
+            {chips.map((c) => (
+              <li key={c} className="ho-chip ho-chip--static">
+                {c}
+              </li>
+            ))}
+          </ul>
+        )}
+        {rules}
       </section>
     );
   }
 
-  const bounds = seatBounds(game, playerCount);
   return (
     <section className="ho-card ho-settings" aria-label="Game settings">
-      <div className="ho-card__head">
-        <h2 className="ho-h2">Game settings</h2>
-        <span className="ho-muted">You are the host</span>
-      </div>
+      {!solo && (
+        <div className="ho-card__head">
+          <h2 className="ho-h2">Game settings</h2>
+          <span className="ho-muted">You are the host</span>
+        </div>
+      )}
 
       {fields.map((f) => (
         <SettingField
@@ -244,41 +256,18 @@ export default function SettingsPanel({ game, settings, maxPlayers, playerCount,
           field={f}
           value={eff[f.key]}
           disabled={disabled}
+          hideHelp={solo} // the summary line below already says it
           onChange={(v) => commit({ [f.key]: v })}
           onStep={(dir) => commit({ [f.key]: stepValue(f, effRef.current[f.key], dir) }, STEPPER_DELAY)}
         />
       ))}
-
-      {seatsKnown && (
-        <div className="ho-field">
-          <div className="ho-field__row">
-            <div className="ho-field__label">Max players</div>
-            <Stepper
-              label="max players"
-              valueText={String(seatCount)}
-              onMinus={() => {
-                const n = Math.max(bounds.min, seatCount - 1);
-                setSeats(n);
-                onMaxPlayers(n);
-              }}
-              onPlus={() => {
-                const n = Math.min(bounds.max, seatCount + 1);
-                setSeats(n);
-                onMaxPlayers(n);
-              }}
-              minusOff={seatCount <= bounds.min}
-              plusOff={seatCount >= bounds.max}
-              disabled={disabled}
-            />
-          </div>
-        </div>
-      )}
 
       {fields.length > 0 && (
         <p className="ho-summary" aria-live="polite">
           {summarizeSettings(game, eff)}
         </p>
       )}
+      {rules}
     </section>
   );
 }

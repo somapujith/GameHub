@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { GAME_ADAPTERS, getAdapter, listGames, missingFromAdapter, DEFAULT_GAME_ID } from './index.js';
-import tycoon, { ID, TRADE_MS, pendingActors, estimateAnimMs, autoMove } from './hyderabad-tycoon.js';
+import tycoon, { ID, TRADE_MS, pendingActors, estimateAnimMs, autoMove, isCurrentBoard } from './hyderabad-tycoon.js';
 import { sanitizeSettings, normalizeSettings, ROOM_DEFAULTS } from '../settings.js';
 import { maskStateFor } from '../mask.js';
 import * as engine from '../../shared/index.js';
@@ -75,7 +75,7 @@ describe('Tycoon adapter: validateSettings keeps parity with the settings valida
 
   it('lobbySettings is exactly what createGame runs with', () => {
     const settings = tycoon.validateSettings({ goal: 40000, maxRounds: null, dice: 'fair' }).settings;
-    const state = tycoon.createGame({ players: [{ id: 'a', name: 'A' }, { id: 'b', name: 'B', isBot: true }], settings, seed: 7 });
+    const state = tycoon.createGame({ players: [{ id: 'a', name: 'A' }, { id: 'b', name: 'B' }], settings, seed: 7 });
     expect(tycoon.lobbySettings(settings)).toEqual(state.cfg);
   });
 
@@ -85,9 +85,9 @@ describe('Tycoon adapter: validateSettings keeps parity with the settings valida
   });
 });
 
-const twoPlayers = () => engine.createGame({ players: [{ id: 'a', name: 'A' }, { id: 'b', name: 'B' }, { id: 'c', name: 'C', isBot: true }], seed: 3 });
+const twoPlayers = () => engine.createGame({ players: [{ id: 'a', name: 'A' }, { id: 'b', name: 'B' }, { id: 'c', name: 'C' }], seed: 3 });
 
-describe('Tycoon adapter: turn, bots, idle and deadlines', () => {
+describe('Tycoon adapter: turn, idle and deadlines', () => {
   it('turnPlayerId is the turn player, the debtor during debt, the trade recipient during a trade', () => {
     const base = twoPlayers();
     expect(tycoon.turnPlayerId(base)).toBe('a');
@@ -108,17 +108,19 @@ describe('Tycoon adapter: turn, bots, idle and deadlines', () => {
     expect(tycoon.pendingPlayerIds({ ...base, phase: 'over' })).toEqual([]);
   });
 
-  it('nextBotMove: only bots move, and a bot always has an answer', () => {
+  it('has no bot interface: no nextBotMove, no rivals', () => {
+    expect(tycoon.nextBotMove).toBeUndefined();
+    expect(tycoon.rivals).toBeUndefined();
+  });
+
+  it('autoMove always has an answer for an absent debtor', () => {
     const base = twoPlayers();
-    expect(tycoon.nextBotMove(base)).toBeNull(); // a (human) is on turn
-    const botTurn = { ...base, turn: 2 };
-    expect(tycoon.nextBotMove(botTurn)).toMatchObject({ playerId: 'c' });
     const debtor = { ...base, phase: 'debt', debt: { player: 'c', amount: 99999, creditor: null, reason: 'tax' } };
-    const a = tycoon.nextBotMove(debtor);
+    const a = autoMove(debtor, 'c');
     expect(a && a.playerId).toBe('c');
   });
 
-  it('deadlines: a trade offer to a human is rejected after 30 s; bots answer themselves; a gone recipient voids it', () => {
+  it('deadlines: a trade offer to a human is rejected after 30 s; a gone recipient voids it', () => {
     const base = twoPlayers();
     const offer = (to) => ({ ...base, trade: { id: 9, from: 'a', to, give: { cash: 1, tiles: [] }, get: { cash: 0, tiles: [] } } });
     expect(tycoon.deadlines(base)).toEqual([]);
@@ -126,7 +128,6 @@ describe('Tycoon adapter: turn, bots, idle and deadlines', () => {
       { key: 'trade:9', afterMs: TRADE_MS, playerId: 'b', action: { type: 'TRADE_REJECT', playerId: 'b' } },
     ]);
     expect(TRADE_MS).toBe(30_000);
-    expect(tycoon.deadlines(offer('c'))).toEqual([]); // 'c' is a bot
     const gone = offer('b');
     gone.players = gone.players.map((p) => (p.id === 'b' ? { ...p, bankrupt: true } : p));
     const [d] = tycoon.deadlines(gone);
@@ -135,7 +136,7 @@ describe('Tycoon adapter: turn, bots, idle and deadlines', () => {
     expect(tycoon.deadlines({ ...offer('b'), phase: 'over' })).toEqual([]);
   });
 
-  it('idleAction: ignoring a trade means rejecting it; otherwise the bot brain plays for the human', () => {
+  it('idleAction: ignoring a trade means rejecting it; otherwise the move chooser plays for the absent player', () => {
     const base = twoPlayers();
     const trade = { ...base, trade: { id: 1, from: 'a', to: 'b', give: { cash: 1, tiles: [] }, get: { cash: 0, tiles: [] } } };
     expect(tycoon.idleAction(trade, 'b')).toEqual({ type: 'TRADE_REJECT', playerId: 'b' });
@@ -173,23 +174,17 @@ describe('Tycoon adapter: turn, bots, idle and deadlines', () => {
   });
 });
 
-describe('Tycoon adapter: redact, rivals, results', () => {
-  it('redact hides other players sealed bids and returns the very same state when nothing is hidden', () => {
+describe('Tycoon adapter: redact, results', () => {
+  it('redact hides other players sealed bids and the server-only rng and deck', () => {
     const base = twoPlayers();
-    expect(tycoon.redact(base, 'a')).toBe(base);
+    const view = tycoon.redact(base, 'a');
+    expect(view.rng).toBe(0);
+    expect(view.deck).toEqual([]);
+    expect({ ...view, rng: base.rng, deck: base.deck }).toEqual(base);
     const auction = { ...base, phase: 'auction', pending: { type: 'auction', tile: 1, minBid: 10, bids: { a: 300, b: 120 } } };
     expect(tycoon.redact(auction, 'a').pending.bids).toEqual({ a: 300, b: 0 });
     expect(tycoon.redact(auction, 'a')).toEqual(maskStateFor(auction, 'a'));
     expect(auction.pending.bids).toEqual({ a: 300, b: 120 });
-  });
-
-  it('rivals gives distinct bot names, avoiding the ones already taken', () => {
-    const rivals = tycoon.rivals(6, ['Chai Uncle']);
-    expect(rivals).toHaveLength(6);
-    expect(new Set(rivals.map((r) => r.name)).size).toBe(6);
-    expect(rivals.map((r) => r.name)).not.toContain('Chai Uncle');
-    for (const r of rivals) expect(r).toMatchObject({ avatar: expect.any(Number), bot: { reserve: expect.any(Number), greed: expect.any(Number) } });
-    expect(tycoon.rivals(1)).toHaveLength(1);
   });
 
   it('track counts hotels from level events; result maps standings, legacy columns and hotels', () => {
@@ -221,5 +216,24 @@ describe('Tycoon adapter: redact, rivals, results', () => {
     const fresh = { meta: { hotels: { a: 1 } }, deadlines: { 'trade:9': 5 } };
     tycoon.upgradeRecord(fresh);
     expect(fresh).toEqual({ meta: { hotels: { a: 1 } }, deadlines: { 'trade:9': 5 } });
+  });
+
+  it('upgradeRecord calls off a game stored on the old 28-tile board (and keeps current ones)', () => {
+    const live = engine.createGame({ players: [{ id: 'a' }, { id: 'b' }], seed: 1 });
+    expect(isCurrentBoard(live)).toBe(true);
+    expect(isCurrentBoard({ owners: Array(28).fill(null) })).toBe(false);
+    expect(isCurrentBoard(null)).toBe(false);
+    const keep = { status: 'playing', state: live, meta: {}, deadlines: {} };
+    tycoon.upgradeRecord(keep);
+    expect(keep).toMatchObject({ status: 'playing', state: live });
+
+    const stale = { ...live, owners: Array(28).fill(null), levels: Array(28).fill(0), mortgaged: Array(28).fill(false) };
+    const playing = { status: 'playing', state: stale, meta: {}, deadlines: {} };
+    tycoon.upgradeRecord(playing);
+    expect(playing).toMatchObject({ status: 'finished', abandoned: true, state: null });
+    expect(playing.endedAt).toEqual(expect.any(Number));
+    const lobby = { status: 'lobby', state: null, meta: {}, deadlines: {} };
+    tycoon.upgradeRecord(lobby);
+    expect(lobby.status).toBe('lobby');
   });
 });

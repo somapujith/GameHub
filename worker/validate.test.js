@@ -19,7 +19,7 @@ describe('names', () => {
     expect(sanitizeName(42)).toBe('');
   });
 
-  it('truncates to 24 code points (emoji / Telugu safe)', () => {
+  it('truncates to 24 code points (emoji safe)', () => {
     expect(sanitizeName('a'.repeat(40))).toHaveLength(NAME_MAX);
     const emoji = '\u{1F600}'.repeat(30);
     expect([...sanitizeName(emoji)]).toHaveLength(NAME_MAX);
@@ -30,7 +30,7 @@ describe('names', () => {
     expect(validateName('x'.repeat(25)).ok).toBe(false);
     expect(validateName('x'.repeat(24))).toEqual({ ok: true, value: 'x'.repeat(24) });
     expect(validateName('  Techie Teja ')).toEqual({ ok: true, value: 'Techie Teja' });
-    expect(validateName('తెలుగు').ok).toBe(true); // Telugu
+    expect(validateName('\u30B2\u30FC\u30E0').ok).toBe(true); // non-Latin script
     expect(validateName(null).ok).toBe(false);
     expect(validateName({}).ok).toBe(false);
   });
@@ -77,8 +77,8 @@ describe('sanitizeAction forces the player id and drops everything unexpected', 
   it('tile actions need a valid tile', () => {
     for (const type of ['UPGRADE', 'MORTGAGE', 'UNMORTGAGE', 'SELL_BUILDING']) {
       expect(sanitizeAction({ type, tile: 5 }, 'me')).toEqual({ type, tile: 5, playerId: 'me' });
-      expect(sanitizeAction({ type, tile: 27 }, 'me')).toEqual({ type, tile: 27, playerId: 'me' });
-      expect(sanitizeAction({ type, tile: 28 }, 'me')).toBeNull();
+      expect(sanitizeAction({ type, tile: 39 }, 'me')).toEqual({ type, tile: 39, playerId: 'me' }); // the last of the 40 squares
+      expect(sanitizeAction({ type, tile: 40 }, 'me')).toBeNull();
       expect(sanitizeAction({ type, tile: -1 }, 'me')).toBeNull();
       expect(sanitizeAction({ type, tile: '5' }, 'me')).toBeNull();
       expect(sanitizeAction({ type }, 'me')).toBeNull();

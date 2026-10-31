@@ -1,9 +1,9 @@
-// Game log: scrolling panel (desktop sidebar) or a collapsible drawer showing the last lines (mobile).
-import { useEffect, useRef, useState } from 'react';
+// Game log pieces: the scrolling `LogList` (terminal style in the control panel, icon rows in the full-log sheet) and `LogSheet`.
+import { useEffect, useRef } from 'react';
 import { TileIcon } from '@/components/art/index.js';
 import { TILES } from '@shared/board.js';
 import Sheet from './ui/Sheet.jsx';
-import Icon from './ui/Icon.jsx';
+import '@/styles/controlpanel.css';
 
 export function LogItem({ entry, fresh = false }) {
   const tile = Number.isInteger(entry.tile) ? TILES[entry.tile] : null;
@@ -17,12 +17,16 @@ export function LogItem({ entry, fresh = false }) {
   );
 }
 
-/** Scrolling list that sticks to the bottom unless the user scrolled up. */
-export function LogList({ log, className = '' }) {
+/**
+ * Scrolling list that sticks to the bottom unless the user scrolled up.
+ * variant 'rows' = icon rows for the dark log sheet; 'mono' = the terminal-style alert log of the control panel.
+ */
+export function LogList({ log, className = '', variant = 'rows' }) {
   const ref = useRef(null);
   const stick = useRef(true);
   const initial = useRef(log.length);
   const lastId = log.length ? log[log.length - 1].id : null;
+  const mono = variant === 'mono';
 
   useEffect(() => {
     const el = ref.current;
@@ -32,18 +36,21 @@ export function LogList({ log, className = '' }) {
   return (
     <ol
       ref={ref}
-      className={`hg-log-list ${className}`}
+      className={mono ? `cp-log ${className}`.trim() : `hg-log-list ${className}`}
       role="log"
       aria-label="Game log"
+      tabIndex={mono ? 0 : undefined}
       onScroll={(e) => {
         const el = e.currentTarget;
         stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
       }}
     >
-      {log.length === 0 ? <li className="hg-log-empty">Your story starts with a roll.</li> : null}
-      {log.map((entry, i) => (
+      {log.length === 0 ? <li className={mono ? 'cp-log__empty' : 'hg-log-empty'}>Your story starts with a roll.</li> : null}
+      {log.map((entry, i) => (mono ? (
+        <li key={entry.id ?? i} className={`cp-log__line is-${entry.tone || 'info'}${i >= initial.current ? ' is-fresh' : ''}`}>{entry.text}</li>
+      ) : (
         <LogItem key={entry.id ?? i} entry={entry} fresh={i >= initial.current} />
-      ))}
+      )))}
     </ol>
   );
 }
@@ -54,47 +61,5 @@ export function LogSheet({ session, open, onClose }) {
     <Sheet open={open} onClose={onClose} title="Game log" className="hg-logsheet">
       <LogList log={session.log || []} className="is-sheet" />
     </Sheet>
-  );
-}
-
-export default function LogPanel({ session, variant = 'drawer' }) {
-  const log = session.log || [];
-  const [open, setOpen] = useState(false);
-
-  if (variant === 'panel') {
-    return (
-      <section className="hg-log hg-log--panel" aria-label="Game log">
-        <header className="hg-log-head">
-          <h2>Game log</h2>
-        </header>
-        <LogList log={log} />
-      </section>
-    );
-  }
-
-  const last = log.slice(-3);
-  const latest = last[last.length - 1];
-  return (
-    <>
-      <button
-        type="button"
-        className="hg-log hg-log--drawer"
-        onClick={() => setOpen(true)}
-        aria-label={`Open game log${latest ? `. Latest: ${latest.text}` : ''}`}
-      >
-        <ol className="hg-logdrawer-list" aria-hidden="true">
-          {last.length === 0 ? <li className="hg-log-empty">Your story starts with a roll.</li> : null}
-          {last.map((entry, i) => (
-            <LogItem key={entry.id ?? i} entry={entry} />
-          ))}
-        </ol>
-        <span className="hg-logdrawer-more" aria-hidden="true">
-          <Icon name="chevronUp" size={18} />
-        </span>
-      </button>
-      <Sheet open={open} onClose={() => setOpen(false)} title="Game log" className="hg-logsheet">
-        <LogList log={log} className="is-sheet" />
-      </Sheet>
-    </>
   );
 }

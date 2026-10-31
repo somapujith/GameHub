@@ -185,7 +185,7 @@ describe('pure helpers', () => {
 
   it('pendingActors: turn player / auction bidders / debtor / trade recipient', () => {
     const base = engine.createGame({
-      players: [{ id: 'a', name: 'A' }, { id: 'b', name: 'B' }, { id: 'c', name: 'C', isBot: true }],
+      players: [{ id: 'a', name: 'A' }, { id: 'b', name: 'B' }, { id: 'c', name: 'C' }],
       seed: 1,
     });
     expect(pendingActors(base)).toEqual(['a']);
@@ -265,7 +265,7 @@ describe('lobby', () => {
     expect(guest.last('room').room.settings.maxRounds).toBeNull();
   });
 
-  it('bots, kick, ready, capacity and start rules', async () => {
+  it('kick, ready, capacity and start rules', async () => {
     const h = new Harness();
     await h.init(user(1), {}, 3);
     const host = await h.connect(user(1));
@@ -273,42 +273,39 @@ describe('lobby', () => {
 
     await h.say(p2, { t: 'start' });
     expect(p2.last('error').message).toMatch(/host/);
-    await h.say(p2, { t: 'addBot' });
-    expect(p2.last('error').message).toMatch(/host/);
 
     await h.say(p2, { t: 'ready', ready: true });
     expect(host.last('room').room.players.find((p) => p.id === U(2)).ready).toBe(true);
     await h.say(p2, { t: 'ready', ready: 'yes' });
     expect(p2.last('error').message).toMatch(/ready/i);
 
-    await h.say(host, { t: 'addBot' });
+    await h.connect(user(3));
     const players = host.last('room').room.players;
     expect(players).toHaveLength(3);
-    const bot = players.find((p) => p.isBot);
-    expect(bot).toMatchObject({ ready: true, connected: true });
+    expect(players.every((p) => p.connected && !('isBot' in p))).toBe(true);
 
-    await h.say(host, { t: 'addBot' }); // full (3)
-    expect(host.last('error').message).toMatch(/full/);
-    // a 4th person cannot join
+    // the room is full (3): a 4th person cannot join
     const res = await h.room.fetch({
       url: 'https://x/ws',
       method: 'GET',
-      headers: new Headers({ Upgrade: 'websocket', 'X-User-Id': U(3), 'X-User-Name': 'z', 'X-User-Avatar': '0' }),
+      headers: new Headers({ Upgrade: 'websocket', 'X-User-Id': U(4), 'X-User-Name': 'z', 'X-User-Avatar': '0' }),
     });
     expect(res.status).toBe(101);
     expect(h.ctx.sockets.at(-1).closeCode).toBe(4003);
 
-    await h.say(host, { t: 'removeBot', id: bot.id });
-    expect(host.last('room').room.players).toHaveLength(2);
-    await h.say(host, { t: 'removeBot', id: U(2) }); // not a bot
-    expect(host.last('error').message).toMatch(/bot/);
+    // there are no bots: the old messages are unknown and change nothing
+    for (const msg of [{ t: 'addBot' }, { t: 'removeBot', id: U(2) }]) {
+      await h.say(host, msg);
+      expect(host.last('error').message).toBe('Unknown message type.');
+      expect(host.last('room').room.players).toHaveLength(3);
+    }
 
     await h.say(host, { t: 'kick', id: U(1) });
     expect(host.last('error').message).toMatch(/yourself/);
     await h.say(host, { t: 'kick', id: U(2) });
     expect(p2.of('kicked')).toHaveLength(1);
     expect(p2.closeCode).toBe(4003);
-    expect(host.last('room').room.players).toHaveLength(1);
+    expect(host.last('room').room.players.map((p) => p.id)).toEqual([U(1), U(3)]);
     // kicked users cannot walk straight back in
     const again = await h.room.fetch({
       url: 'https://x/ws',
@@ -318,6 +315,7 @@ describe('lobby', () => {
     expect(again.status).toBe(101);
     expect(h.ctx.sockets.at(-1).closeCode).toBe(4003);
 
+    await h.say(host, { t: 'kick', id: U(3) });
     await h.say(host, { t: 'start' });
     expect(host.last('error').message).toMatch(/at least 2/);
   });
@@ -365,20 +363,17 @@ async function startedGame(settings = {}, extra = {}) {
   const h = new Harness();
   await h.init(user(1), settings, extra.maxPlayers || 4);
   const host = await h.connect(user(1));
-  await h.say(host, { t: 'addBot' });
-  if (extra.second) {
-    const p2 = await h.connect(user(2));
-    h.p2 = p2;
-  }
+  h.p2 = await h.connect(user(2)); // every seat is a real player: a game needs at least two
   await h.say(host, { t: 'start' });
   h.host = host;
   return h;
 }
 
 /**
- * Let bots play (and refuse any trade a bot proposes to the human) until it is the human's
- * turn with nothing pending. Bots may propose trades (rules v2), so tests must not assume
- * that "turn == U(1)" means "free to act".
+ * Let the other player (U(2), who never acts, so the server plays for them once they are idle)
+ * play, and refuse any trade they propose to U(1), until it is U(1)'s turn with nothing pending.
+ * The auto-play may propose trades (rules v2), so tests must not assume that "turn == U(1)"
+ * means "free to act".
  */
 async function toHumanTurn(h, socket) {
   for (let i = 0; i < 300; i += 1) {
@@ -404,6 +399,22 @@ async function toHumanTurn(h, socket) {
 }
 
 describe('game start', () => {
+  it('needs at least two real players', async () => {
+    const h = new Harness();
+    await h.init(user(1), {}, 4);
+    const host = await h.connect(user(1));
+    await h.say(host, { t: 'addBot' }); // there are no bots
+    await h.say(host, { t: 'start' });
+    expect(host.last('error').message).toMatch(/at least 2 players/);
+    expect(h.room.room.status).toBe('lobby');
+    expect(h.room.room.players).toHaveLength(1);
+    await h.connect(user(2));
+    await h.say(host, { t: 'start' });
+    expect(h.room.room.status).toBe('playing');
+    expect(h.state.players.map((p) => p.id).sort()).toEqual([U(1), U(2)]);
+  });
+
+
   it('passes the normalised settings to the engine (state.cfg matches room.settings)', async () => {
     const h = await startedGame({ goal: 50000, startCash: 20000, maxRounds: 30, dice: 'fair', auctionOnDecline: false });
     const cfg = h.state.cfg;
@@ -467,7 +478,7 @@ describe('game flow', () => {
     expect(h.host.last('error').message).toMatch(/Invalid action/);
   });
 
-  it('plays a whole game on its own (human idles, then bot-style auto-play) and persists exactly once', async () => {
+  it('plays a whole game on its own (both players idle, so the server plays for them) and persists exactly once', async () => {
     const h = await startedGame({ goal: 12000, maxRounds: 30, startCash: 5000 });
     let steps = 0;
     while (h.room.room.status === 'playing' && steps < 6000) {
@@ -485,9 +496,8 @@ describe('game flow', () => {
     expect(rec.id).toBe(h.room.room.matchId);
     expect(rec.players).toHaveLength(2);
     expect(rec.players.map((p) => p.rank).sort()).toEqual([1, 2]);
-    expect(rec.players.find((p) => p.is_bot).user_id).toBeNull();
-    expect(rec.users).toHaveLength(1); // only the human gets stats / xp
-    expect(rec.users[0].user_id).toBe(U(1));
+    expect(rec.players.every((p) => p.is_bot === false)).toBe(true);
+    expect(rec.users.map((u) => u.user_id).sort()).toEqual([U(1), U(2)]); // every seat is a real user with stats / xp
     expect(['net_worth', 'last_standing', 'rounds']).toContain(rec.winReason);
     if (rec.winReason === 'rounds') expect(rec.rounds).toBeLessThanOrEqual(30);
     // seq only ever went up, and the room told everyone it finished
@@ -560,6 +570,7 @@ describe('game flow', () => {
   it('abandons a game nobody is connected to (no persistence)', async () => {
     const h = await startedGame();
     await h.close(h.host);
+    await h.close(h.p2);
     let steps = 0;
     while (h.room.room.status === 'playing' && steps < 6000) {
       await h.tick();
@@ -576,7 +587,7 @@ describe('game flow', () => {
     await h.init(user(1), {}, 3);
     const host = await h.connect(user(1));
     const p2 = await h.connect(user(2));
-    await h.say(host, { t: 'addBot' });
+    await h.connect(user(3));
     await h.say(host, { t: 'start' });
     await h.say(p2, { t: 'leave' });
     expect(h.state.players.find((p) => p.id === U(2)).bankrupt).toBe(true);
@@ -626,10 +637,7 @@ describe('rules v2: trades and debts', () => {
   });
 
   it('a pending trade to a human is rejected automatically after 30 s (and the recipient is not flagged idle)', async () => {
-    const h = await withState((s) => {
-      const bot = s.players.find((p) => p.isBot).id;
-      return { trade: offer(s, bot, U(1)) };
-    });
+    const h = await withState((s) => ({ trade: offer(s, U(2), U(1)) }));
     const r = h.room.room;
     const tradeAt = Date.now();
     r.deadlines = { 'trade:trade-1': tradeAt }; // the clock the room started when the offer appeared
@@ -641,50 +649,34 @@ describe('rules v2: trades and debts', () => {
     expect(h.room.plan().at).toBeGreaterThan(Date.now());
   });
 
-  it('a bot recipient answers at once; an absent human recipient is rejected without waiting 30 s', async () => {
-    const h = await withState((s) => {
-      const human = s.players.find((p) => !p.isBot).id;
-      const bot = s.players.find((p) => p.isBot).id;
-      return { trade: offer(s, human, bot) };
-    });
-    let plan = h.room.plan();
-    expect(plan.id).toBe(h.state.trade.to);
-    expect(plan.at).toBeLessThanOrEqual(Date.now() + 1000);
-
-    const h2 = await withState((s) => {
-      const bot = s.players.find((p) => p.isBot).id;
-      return { trade: offer(s, bot, U(1)) };
-    });
-    h2.room.room.deadlines = { 'trade:trade-1': Date.now() };
-    h2.room.room.afk[U(1)] = true;
-    plan = h2.room.plan();
-    expect(plan.action.type).toBe('TRADE_REJECT');
-    expect(plan.at).toBeLessThan(Date.now() + 5000);
+  it('an idle recipient is rejected without waiting 30 s', async () => {
+    for (const [from, to] of [[U(2), U(1)], [U(1), U(2)]]) {
+      const h = await withState((s) => ({ trade: offer(s, from, to) }));
+      h.room.room.deadlines = { 'trade:trade-1': Date.now() };
+      h.room.room.afk[to] = true;
+      const plan = h.room.plan();
+      expect(plan.action).toEqual({ type: 'TRADE_REJECT', playerId: to });
+      expect(plan.at).toBeLessThan(Date.now() + 5000);
+    }
   });
 
   it('a trade to a player who is out of the game is cancelled by the offerer', async () => {
-    const h = await withState((s) => {
-      const bot = s.players.find((p) => p.isBot).id;
-      return { trade: offer(s, U(1), bot), players: s.players.map((p) => (p.id === bot ? { ...p, bankrupt: true } : p)) };
-    });
+    const h = await withState((s) => ({
+      trade: offer(s, U(1), U(2)),
+      players: s.players.map((p) => (p.id === U(2) ? { ...p, bankrupt: true } : p)),
+    }));
     const plan = h.room.plan();
     expect(plan.action).toEqual({ type: 'TRADE_CANCEL', playerId: U(1) });
   });
 
   it('an idle turn player who made an offer takes it back', async () => {
-    const h = await withState((s) => {
-      const bot = s.players.find((p) => p.isBot).id;
-      return { trade: offer(s, U(1), bot) };
-    });
-    // the recipient is a bot -> it answers first; make the bot a connected human instead
-    h.room.room.state.players.find((p) => p.isBot).isBot = false;
-    h.room.room.players.find((p) => p.isBot).isBot = false;
+    const h = await withState((s) => ({ trade: offer(s, U(1), U(2)) }));
     h.room.room.afk[U(1)] = true;
     const plan = h.room.plan();
     expect(plan.action).toEqual({ type: 'TRADE_CANCEL', playerId: U(1) });
   });
 
-  it('a debtor is handled by the 45 s timer and resolved with the bot brain (or PAY_DEBT)', async () => {
+  it('a debtor is handled by the 45 s timer and resolved by the move chooser (or PAY_DEBT)', async () => {
     const h = await withState((s) => ({
       phase: 'debt',
       debt: { player: U(1), amount: 300, creditor: null, reason: 'tax' },
@@ -750,13 +742,12 @@ describe('rules v2: trades and debts', () => {
     const r = h.room.room;
     const st = r.state;
     st.cfg.debug = true; // test-only: lets the harness force the dice (the real server never sets it)
-    st.cfg.diceCount = 2; // This debt fixture exercises the original two-die saved-game rules.
     st.turn = st.players.findIndex((p) => p.id === U(1));
     const me = st.players[st.turn];
     me.cash = 300;
-    me.pos = 12;
-    for (const t of [1, 2, 4]) st.owners[t] = U(1);
-    const res = await h.room.applyAndBroadcast({ type: 'ROLL', playerId: U(1), dice: [2, 2] }); // lands on the tax tile
+    me.pos = 35;
+    for (const t of [1, 3, 6]) st.owners[t] = U(1);
+    const res = await h.room.applyAndBroadcast({ type: 'ROLL', playerId: U(1), dice: [3] }); // 35 + 3 lands on the ORR toll (1,000)
     expect(res.error).toBeUndefined();
     expect(h.state.phase).toBe('debt');
     expect(h.state.debt).toMatchObject({ player: U(1) });
@@ -794,36 +785,36 @@ describe('rules v2: trades and debts', () => {
 });
 
 describe('sealed auctions: bids are masked per recipient', () => {
-  async function twoHumansAndBot() {
+  async function threeHumans() {
     const h = new Harness();
     await h.init(user(1), {}, 3);
     const a = await h.connect(user(1));
     const b = await h.connect(user(2));
-    await h.say(a, { t: 'addBot' });
+    const c = await h.connect(user(3));
     await h.say(a, { t: 'start' });
-    const bot = h.state.players.find((p) => p.isBot).id;
+    const third = U(3);
     const st = h.room.room.state;
     st.phase = 'auction';
     st.owners[1] = null;
     st.pending = { type: 'auction', tile: 1, minBid: 50, bids: { [U(1)]: 300 } };
     h.room.room.lastApplyAt = Date.now();
-    return { h, a, b, bot };
+    return { h, a, b, c, third };
   }
 
   it("connect / reconnect snapshots hide other players' amounts", async () => {
-    const { h, bot } = await twoHumansAndBot();
-    h.room.room.state.pending.bids[bot] = 120;
+    const { h, third } = await threeHumans();
+    h.room.room.state.pending.bids[third] = 120;
     const a2 = await h.connect(user(1));
     const b2 = await h.connect(user(2));
-    expect(a2.last('state').state.pending.bids).toEqual({ [U(1)]: 300, [bot]: 0 });
-    expect(b2.last('state').state.pending.bids).toEqual({ [U(1)]: 0, [bot]: 0 }); // keys kept: "has bid" is visible
+    expect(a2.last('state').state.pending.bids).toEqual({ [U(1)]: 300, [third]: 0 });
+    expect(b2.last('state').state.pending.bids).toEqual({ [U(1)]: 0, [third]: 0 }); // keys kept: "has bid" is visible
     expect(a2.last('state').events).toEqual([]);
     // the authoritative copy in the room is untouched
-    expect(h.state.pending.bids).toEqual({ [U(1)]: 300, [bot]: 120 });
+    expect(h.state.pending.bids).toEqual({ [U(1)]: 300, [third]: 120 });
   });
 
   it('broadcasts mask per recipient; auction_end reveals everything; later states carry no bids', async () => {
-    const { h, a, b, bot } = await twoHumansAndBot();
+    const { h, a, b, c, third } = await threeHumans();
     await h.say(b, { t: 'action', action: { type: 'BID', amount: 100 } });
     expect(a.last('state').state.pending.bids).toEqual({ [U(1)]: 300, [U(2)]: 0 });
     expect(b.last('state').state.pending.bids).toEqual({ [U(1)]: 0, [U(2)]: 100 });
@@ -831,18 +822,18 @@ describe('sealed auctions: bids are masked per recipient', () => {
     // nothing in the events of a non-final bid leaks an amount
     expect(JSON.stringify(a.last('state').events)).not.toContain('300');
 
-    const res = await h.room.applyAndBroadcast({ type: 'BID', playerId: bot, amount: 120 });
+    const res = await h.room.applyAndBroadcast({ type: 'BID', playerId: third, amount: 120 });
     expect(res.error).toBeUndefined();
-    for (const sock of [a, b]) {
+    for (const sock of [a, b, c]) {
       const end = sock.last('state').events.find((e) => e.type === 'auction_end');
-      expect(end.bids).toEqual({ [U(1)]: 300, [U(2)]: 100, [bot]: 120 }); // legitimately revealed
+      expect(end.bids).toEqual({ [U(1)]: 300, [U(2)]: 100, [third]: 120 }); // legitimately revealed
       expect(end.winner).toBe(U(1));
       expect(sock.last('state').state.pending).toBeNull();
     }
   });
 
   it('the stored room keeps the real bids (masking only happens on the way out)', async () => {
-    const { h } = await twoHumansAndBot();
+    const { h } = await threeHumans();
     h.room.room.state.pending.bids[U(2)] = 77;
     await h.room.save();
     const stored = await h.ctx.storage.get('room');
@@ -859,12 +850,11 @@ describe('debt phase: the debtor acts even when it is not their turn', () => {
     await h.say(a, { t: 'start' });
     const st = h.room.room.state;
     st.cfg.debug = true; // test-only: lets the harness force the dice
-    st.cfg.diceCount = 2; // This debt fixture exercises the original two-die saved-game rules.
     st.turn = st.players.findIndex((p) => p.id === U(1));
     st.players[st.turn].cash = 300;
-    st.players[st.turn].pos = 12;
-    for (const t of [1, 2, 4]) st.owners[t] = U(1);
-    const res = await h.room.applyAndBroadcast({ type: 'ROLL', playerId: U(1), dice: [2, 2] }); // lands on the tax tile
+    st.players[st.turn].pos = 35;
+    for (const t of [1, 3, 6]) st.owners[t] = U(1);
+    const res = await h.room.applyAndBroadcast({ type: 'ROLL', playerId: U(1), dice: [3] }); // 35 + 3 lands on the ORR toll (1,000)
     expect(res.error).toBeUndefined();
     expect(h.state.phase).toBe('debt');
     expect(h.state.debt.player).toBe(U(1));
@@ -884,11 +874,11 @@ describe('debt phase: the debtor acts even when it is not their turn', () => {
     expect(b.last('error')).toBeTruthy();
     // the debtor raises cash although it is not their turn
     const errors = a.of('error').length;
-    await h.say(a, { t: 'action', action: { type: 'MORTGAGE', tile: 4 } });
+    await h.say(a, { t: 'action', action: { type: 'MORTGAGE', tile: 6 } });
     expect(a.of('error').length).toBe(errors);
-    expect(h.state.mortgaged[4]).toBe(true);
+    expect(h.state.mortgaged[6]).toBe(true);
     await h.say(a, { t: 'action', action: { type: 'MORTGAGE', tile: 1 } });
-    await h.say(a, { t: 'action', action: { type: 'MORTGAGE', tile: 2 } });
+    await h.say(a, { t: 'action', action: { type: 'MORTGAGE', tile: 3 } });
     await h.say(a, { t: 'action', action: { type: 'PAY_DEBT' } });
     expect(a.of('error').length).toBe(errors);
     expect(h.state.debt).toBeNull();
@@ -901,7 +891,7 @@ describe('debt phase: the debtor acts even when it is not their turn', () => {
     expect(h.state.players.find((p) => p.id === U(1)).bankrupt).toBe(true);
   });
 
-  it('an idle non-turn debtor is resolved by the 45 s timer (bot brain on their behalf)', async () => {
+  it('an idle non-turn debtor is resolved by the 45 s timer (the move chooser plays on their behalf)', async () => {
     const { h } = await debtGame();
     const r = h.room.room;
     r.lastApplyAt = Date.now();

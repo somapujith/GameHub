@@ -3,12 +3,12 @@
 //   nextBotMove(state, rnd = Math.random)     -> action | null   (null = a human must act, or game over)
 //   chooseBotAction(state, playerId, rnd)     -> action | null   (works for ANY player id: the server
 //                                                                 uses it to auto-play idle humans)
-// Bot personality lives on `player.bot = { reserve, greed }` (defaults reserve 500, greed 1).
+// Bot personality lives on `player.bot = { reserve, greed }` (defaults reserve 1000, greed 1).
 //
 // Priority inside nextBotMove: a debt to settle, then a trade offer waiting for a bot, then a sealed
 // auction, then the turn player.
 
-import { TILES, GROUP_TILES, GROUPS, BOARD_SIZE, rentFor, mortgageValue } from './board.js';
+import { TILES, GROUP_TILES, GROUPS, BOARD_SIZE, rentFor, upgradeCost, mortgageValue } from './board.js';
 import { DEFAULT_BOT, getOptions } from './engine.js';
 
 const tenth = (x) => Math.floor(x / 10) * 10;
@@ -83,25 +83,14 @@ function debtAction(state, player) {
 // Trading
 // ---------------------------------------------------------------------------------------------
 
-/** How good a holding is: face value plus a big bonus for owning complete colours. */
-function holdingValue(state, playerId, owners) {
-  let v = 0;
-  for (let t = 0; t < BOARD_SIZE; t++) {
-    if (owners[t] !== playerId) continue;
-    v += TILES[t].price - (state.mortgaged && state.mortgaged[t] ? mortgageValue(TILES[t]) : 0);
-  }
-  for (const g of Object.keys(GROUPS)) {
-    const tiles = GROUP_TILES[g];
-    const owned = tiles.filter((t) => owners[t] === playerId).length;
-    const total = tiles.reduce((n, t) => n + TILES[t].price, 0);
-    if (owned === tiles.length) v += 1.2 * total;
-    else if (tiles.length === 3 && owned === 2) v += 0.35 * total;
-  }
-  const transports = [3, 11, 24].filter((t) => owners[t] === playerId).length;
-  v += [0, 0, 300, 900][transports];
-  return v;
-}
+// Extra worth (on top of face value) of a station / utility set, by how many of its kind are held.
+// Stations are the same price, so the extra tracks their rent ladder (250 / 500 / 1,000 / 2,000).
+const TRANSPORT_IDS = TILES.filter((t) => t.type === 'transport').map((t) => t.id);
+const UTILITY_IDS = TILES.filter((t) => t.type === 'utility').map((t) => t.id);
+const TRANSPORT_SET_VALUE = [0, 0, 400, 1200, 2800];
+const UTILITY_SET_VALUE = [0, 0, 500];
 
+/** The colour-set part of a holding: a whole colour is worth far more than its tiles; one short of a trio is a threat. */
 function setBonusOnly(state, playerId, owners) {
   let v = 0;
   for (const g of Object.keys(GROUPS)) {
@@ -111,6 +100,18 @@ function setBonusOnly(state, playerId, owners) {
     if (owned === tiles.length) v += 1.2 * total;
     else if (tiles.length === 3 && owned === 2) v += 0.35 * total;
   }
+  return v;
+}
+
+/** How good a holding is: face value plus a big bonus for owning complete colours and station sets. */
+function holdingValue(state, playerId, owners) {
+  let v = setBonusOnly(state, playerId, owners);
+  for (let t = 0; t < BOARD_SIZE; t++) {
+    if (owners[t] !== playerId) continue;
+    v += TILES[t].price - (state.mortgaged && state.mortgaged[t] ? mortgageValue(TILES[t]) : 0);
+  }
+  v += TRANSPORT_SET_VALUE[TRANSPORT_IDS.filter((t) => owners[t] === playerId).length];
+  v += UTILITY_SET_VALUE[UTILITY_IDS.filter((t) => owners[t] === playerId).length];
   return v;
 }
 
@@ -174,6 +175,7 @@ export function chooseBotAction(state, playerId, rnd = Math.random) {
   if (!player || player.bankrupt) return null;
   const { reserve } = botParams(player);
 
+  if (state.phase === 'snatch') return null; // auto-play never snatches (see botSnatchAction for the simulator)
   if (state.phase === 'debt') return debtAction(state, player);
 
   if (state.trade) {
@@ -226,8 +228,21 @@ export function chooseBotAction(state, playerId, rnd = Math.random) {
   return null;
 }
 
+/**
+ * The simulator's trivial snatch policy (docs/GAME_RULES.md 9.9): press Snatch when the tile would complete
+ * this player's colour set or costs at least SNATCH_MIN_PRICE. Not used by the server's auto-play, which never snatches.
+ */
+export const SNATCH_MIN_PRICE = 1500;
+export function botSnatchAction(state, playerId) {
+  const pend = state && state.phase === 'snatch' && state.pending;
+  if (!pend || pend.type !== 'snatch') return null;
+  if (!getOptions(state, playerId).snatch) return null;
+  if (!(completesSet(state, playerId, pend.tile) || pend.price >= SNATCH_MIN_PRICE)) return null;
+  return { type: 'SNATCH', playerId };
+}
+
 export function nextBotMove(state, rnd = Math.random) {
-  if (!state || state.phase === 'over') return null;
+  if (!state || state.phase === 'over' || state.phase === 'snatch') return null;
   const bot = (id) => {
     const p = state.players.find((x) => x.id === id);
     return p && p.isBot && !p.bankrupt ? p : null;

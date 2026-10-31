@@ -1,12 +1,12 @@
 // Per-game numbers for the profile and leaderboard: the server's `user.gameStats[gameId]` when present,
-// otherwise (the default game only) the legacy account totals or the offline record kept on this device.
+// otherwise (the default game only) the legacy account totals from `user.stats`.
 import { compactINR } from '@shared/format.js';
 import { BRAND } from '@/platform/brand.js';
 
 const n = (v) => Math.max(0, Math.round(Number(v) || 0));
 
-/** `{ games, wins, bestScore, rating, source: 'server'|'account'|'local' }` or `null` when there is no data. */
-export function resolveGameStats({ user, profile, gameId }) {
+/** `{ games, wins, bestScore, rating, source: 'server'|'account' }` or `null` when there is no data. */
+export function resolveGameStats({ user, gameId }) {
   const server = user?.gameStats?.[gameId];
   if (server && typeof server === 'object') {
     return { games: n(server.games), wins: n(server.wins), bestScore: n(server.bestScore), rating: n(server.rating), source: 'server' };
@@ -15,10 +15,6 @@ export function resolveGameStats({ user, profile, gameId }) {
   const acct = user?.stats;
   if (acct && (acct.games || acct.wins || acct.bestWorth)) {
     return { games: n(acct.games), wins: n(acct.wins), bestScore: n(acct.bestWorth), rating: 0, source: 'account' };
-  }
-  const local = profile?.stats;
-  if (local && (local.games || local.wins || local.bestWorth)) {
-    return { games: n(local.games), wins: n(local.wins), bestScore: n(local.bestWorth), rating: 0, source: 'local' };
   }
   return null;
 }

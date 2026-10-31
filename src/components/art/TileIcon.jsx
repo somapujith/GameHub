@@ -1,9 +1,9 @@
-// Small flat icons (64x64 box) for every tile.art key. Same palette + soft-highlight style as the big dioramas.
+// Small flat icons (64x64 box) for every tile.art key. Same palette + soft-highlight style as the rest of the art kit.
 import { memo } from 'react';
 import { GROUPS } from '@shared/board.js';
-import { PAL, darken, lighten } from './palette.js';
+import { PAL, darken } from './palette.js';
 import { Box, Pad, Gable, Face, archPath } from './iso.jsx';
-import { CharminarFront } from './marks.jsx';
+import { Beacon, ChaiCup } from './marks.jsx';
 
 const INK = '#1b1340';
 const Shadow = ({ rx = 20, y = 58 }) => <ellipse cx="32" cy={y} rx={rx} ry="3" fill={INK} opacity=".16" />;
@@ -47,29 +47,11 @@ function Metro() {
   );
 }
 
-function Boat() {
-  return (
-    <g>
-      <path d="M10 51Q14 49 18 51T26 51T34 51T42 51T50 51T54 51Q60 51 60 55.5Q60 59 54 59H10Q4 59 4 55.5Q4 51 10 51Z" fill="#37c5d6" />
-      <path d="M12 55Q16 53.4 20 55T28 55T36 55T44 55T52 55" fill="none" stroke="#9aeaf7" strokeWidth="1.4" strokeLinecap="round" opacity=".8" />
-      <path d="M31.4 7V44" stroke="#8a5a3c" strokeWidth="1.8" strokeLinecap="round" />
-      <path d="M30 9V42H12Z" fill="#fff" />
-      <path d="M30 9V42H21Z" fill="#e9e1f7" />
-      <path d="M33.4 14V42H52Z" fill={PAL.saffron} />
-      <path d="M33.4 14V42H42Z" fill="#ff9d57" />
-      <path d="M32 7L39 9.2L32 11.4Z" fill={PAL.rose} />
-      <path d="M8 43.6H56L49 53H15Z" fill="#fff7e6" />
-      <path d="M8 43.6H56L54.4 46H9.6Z" fill="#3a2f8c" />
-      <path d="M36 43.6H56L49 53H36Z" fill="#e0d6ee" opacity=".7" />
-    </g>
-  );
-}
-
 function Plane() {
   return (
     <g>
       <ellipse cx="34" cy="55" rx="20" ry="3" fill={INK} opacity=".14" />
-      <g transform="translate(32 33) scale(.78) translate(-32 -32) rotate(-34 32 32)">
+      <g transform="translate(32 33) scale(.94) translate(-32 -32) rotate(-34 32 32)">
         <path d="M24 32L40 32L31 7H22Z" fill="#c9cfee" />
         <path d="M24 32L40 32L31 57H22Z" fill="#e6e9fb" />
         <path d="M6 30Q6 27 10 27H50Q60 27 60 32Q60 37 50 37H10Q6 37 6 34Z" fill="#fff" />
@@ -138,42 +120,57 @@ function Tax() {
   );
 }
 
-function Film() {
+// Nawab ka Farman: a rolled royal decree with a wax seal.
+function Farman() {
   return (
     <g>
       <Shadow rx={22} />
-      <rect x="9" y="26" width="46" height="29" rx="3" fill="#2f2570" />
-      <rect x="9" y="26" width="46" height="10" fill="#fff" />
-      {[0, 1, 2, 3, 4].map((i) => (
-        <polygon key={i} points={`${11 + i * 9},26 ${16 + i * 9},26 ${13 + i * 9},36 ${8 + i * 9},36`} fill={INK} />
-      ))}
-      <g transform="translate(9 25) rotate(-13)">
-        <rect x="0" y="-9" width="46" height="9" rx="1.5" fill="#fff" />
-        {[0, 1, 2, 3, 4].map((i) => (
-          <polygon key={i} points={`${i * 9 + 2},-9 ${i * 9 + 7},-9 ${i * 9 + 5},0 ${i * 9},0`} fill={INK} />
-        ))}
+      <rect x="16" y="12" width="32" height="40" fill="#fff1cf" />
+      <rect x="32" y="12" width="16" height="40" fill="#ecd7a0" opacity=".6" />
+      {[19, 25, 31].map((y, i) => <rect key={y} x="21" y={y} width={i === 2 ? 14 : 22} height="2.4" rx="1.2" fill="#9a7440" opacity=".75" />)}
+      <rect x="10" y="7" width="44" height="9" rx="4.5" fill="#d89b4a" />
+      <rect x="10" y="7" width="44" height="3.4" rx="1.7" fill="#f4c97f" />
+      <circle cx="10.6" cy="11.5" r="4.4" fill="#b87a30" />
+      <circle cx="53.4" cy="11.5" r="4.4" fill="#b87a30" />
+      <rect x="10" y="48" width="44" height="9" rx="4.5" fill="#d89b4a" />
+      <rect x="10" y="48" width="44" height="3.4" rx="1.7" fill="#f4c97f" />
+      <circle cx="10.6" cy="52.5" r="4.4" fill="#b87a30" />
+      <circle cx="53.4" cy="52.5" r="4.4" fill="#b87a30" />
+      <g transform="translate(36 42)">
+        <circle r="7.6" fill="#b3202f" />
+        <circle r="6.4" fill="#e23a48" />
+        <circle r="4.4" fill="none" stroke="#ff9aa4" strokeWidth=".9" />
+        <path d="M0 -3L.9 -.9L3 -.8L1.4 .6L1.9 2.8L0 1.6L-1.9 2.8L-1.4 .6L-3 -.8L-.9 -.9Z" fill="#ffd34e" />
       </g>
-      <path d="M26 40L26 52L38 46Z" fill={PAL.gold} />
-      <path d="M26 40L26 52L32 49Z" fill={PAL.gold2} opacity=".6" />
     </g>
   );
 }
 
-function Kismet() {
+// Hyderabadi Khazana: a treasure chest spilling gold.
+function Khazana() {
   return (
     <g>
-      <Shadow rx={20} />
-      <g transform="rotate(-12 24 34)">
-        <rect x="9" y="14" width="26" height="38" rx="4" fill="#9b7bff" />
-        <rect x="9" y="14" width="26" height="38" rx="4" fill="none" stroke="#fff7e6" strokeWidth="1.6" />
-        <path d="M22 26L24.4 31.4L30.4 31.8L25.8 35.6L27.4 41.4L22 38.2L16.6 41.4L18.2 35.6L13.6 31.8L19.6 31.4Z" fill={PAL.gold} />
-      </g>
-      <g transform="rotate(10 42 34)">
-        <rect x="28" y="12" width="28" height="40" rx="4" fill="#fff7e6" />
-        <rect x="28" y="12" width="28" height="40" rx="4" fill="none" stroke="#3a2f8c" strokeWidth="2" />
-        <rect x="31.4" y="15.4" width="21.2" height="33.2" rx="2.6" fill={PAL.gold} opacity=".4" />
-        <path d="M36.4 26A5.8 5.8 0 1 1 44 31.4Q42 32.8 42 36" fill="none" stroke="#3a2f8c" strokeWidth="3.4" strokeLinecap="round" />
-        <circle cx="42" cy="42.6" r="2.2" fill="#3a2f8c" />
+      <Shadow rx={24} />
+      <path d="M13 31L17 14H47L51 31Z" fill="#6f3d1c" />
+      <path d="M13 31L17 14H32V31Z" fill="#8a4f26" />
+      {[[22, 25], [30, 22], [38, 25], [27, 17], [35, 18]].map(([x, y], i) => (
+        <g key={i}>
+          <circle cx={x} cy={y} r="5.6" fill="#e0a800" />
+          <circle cx={x - 0.5} cy={y - 0.6} r="4.6" fill="#ffd34e" />
+          <circle cx={x - 0.5} cy={y - 0.6} r="2.6" fill="none" stroke="#e0a800" strokeWidth=".9" />
+        </g>
+      ))}
+      <rect x="11" y="31" width="42" height="23" rx="3" fill="#9c5a2c" />
+      <rect x="11" y="31" width="42" height="7" rx="2" fill="#b8733a" />
+      <rect x="11" y="38" width="42" height="3.4" fill="#ffc857" />
+      <rect x="11" y="31" width="5" height="23" rx="2" fill="#ffc857" />
+      <rect x="48" y="31" width="5" height="23" rx="2" fill="#ffc857" />
+      <rect x="27.4" y="35.6" width="9.2" height="11" rx="2" fill="#ffd34e" />
+      <circle cx="32" cy="40.6" r="1.8" fill="#6f3d1c" />
+      <rect x="31.2" y="41" width="1.6" height="4" rx=".8" fill="#6f3d1c" />
+      <g fill="#fff3b8">
+        <path d="M54 8L55.4 11.6L59 13L55.4 14.4L54 18L52.6 14.4L49 13L52.6 11.6Z" />
+        <path d="M10 18L10.9 20.1L13 21L10.9 21.9L10 24L9.1 21.9L7 21L9.1 20.1Z" />
       </g>
     </g>
   );
@@ -207,49 +204,20 @@ function Jail() {
   );
 }
 
-function Auction() {
-  return (
-    <g>
-      <Shadow rx={22} />
-      <ellipse cx="32" cy="53" rx="18" ry="5" fill="#8f5226" />
-      <path d="M14 48V53A18 5 0 0 0 50 53V48Z" fill="#a8693a" />
-      <ellipse cx="32" cy="48" rx="18" ry="5" fill="#c98a4e" />
-      <ellipse cx="32" cy="47.6" rx="12" ry="3.2" fill="#b97a44" />
-      <g transform="rotate(-32 30 30)">
-        <rect x="28.6" y="26" width="5.4" height="34" rx="2.4" fill="#8f5226" />
-        <rect x="28.6" y="26" width="2.6" height="34" rx="1.3" fill="#c47a3e" />
-        <rect x="16" y="10" width="30" height="16" rx="5" fill="#8f5226" />
-        <rect x="16" y="10" width="30" height="11" rx="5" fill="#c47a3e" />
-        <rect x="18" y="12" width="26" height="3.2" rx="1.6" fill="#eaa86c" />
-        <rect x="21" y="10" width="3.4" height="16" fill={PAL.gold} />
-        <rect x="37.6" y="10" width="3.4" height="16" fill={PAL.gold} />
-      </g>
-      <g fill="none" stroke="#fff" strokeWidth="1.8" strokeLinecap="round" opacity=".85">
-        <path d="M10 36Q7 39 8 43M14 33Q9 38 10 46" />
-      </g>
-      <circle cx="53" cy="44" r="4.4" fill="#fff" />
-      <circle cx="52" cy="43" r="1.4" fill="#fff" />
-      <circle cx="53" cy="44" r="4.4" fill="none" stroke="#e1daf3" strokeWidth="1" />
-    </g>
-  );
-}
-
 function TileIconBase({ tile, size = 32, className, title }) {
   const art = typeof tile === 'string' ? tile : tile?.art || 'property';
   const gcol = (tile && typeof tile === 'object' && tile.group && GROUPS[tile.group]?.color) || PAL.saffron;
   let node;
   switch (art) {
-    case 'charminar': node = <CharminarFront />; break;
     case 'metro': node = <Metro />; break;
-    case 'boat': node = <Boat />; break;
     case 'plane': node = <Plane />; break;
     case 'bulb': node = <Bulb />; break;
     case 'water': node = <Water />; break;
     case 'tax': node = <Tax />; break;
-    case 'film': node = <Film />; break;
-    case 'kismet': node = <Kismet />; break;
+    case 'kismet': node = tile?.deck === 'chest' ? <Khazana /> : <Farman />; break;
     case 'jail': node = <Jail />; break;
-    case 'auction': node = <Auction />; break;
+    case 'parking': node = <ChaiCup />; break;
+    case 'gotojail': node = <Beacon />; break;
     default: node = <Property color={gcol} />;
   }
   const label = title === undefined ? undefined : title || (typeof tile === 'object' && tile?.name) || art;
@@ -274,4 +242,3 @@ function TileIconBase({ tile, size = 32, className, title }) {
 
 export const TileIcon = memo(TileIconBase);
 export default TileIcon;
-void lighten;

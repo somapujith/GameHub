@@ -15,7 +15,7 @@ export default function makeSoon({ id, name, tagline, description, category, pla
     duration,
     theme,
     features,
-    modes: { bots: false, friends: false, open: false },
+    modes: { friends: false, open: false },
     art: {
       cover: (props) => createElement(ComingSoonCover, { id, ...props }),
       icon: (props) => createElement(ComingSoonIcon, { id, rounded: true, ...props }),

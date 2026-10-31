@@ -6,7 +6,6 @@ import { useSettings } from '@/components/shell/stores.js';
 import { BRAND } from '@/platform/brand.js';
 import { LEGACY_REDIRECTS, paths } from '@/platform/paths.js';
 import PageLoading from '@/platform/game/PageLoading.jsx';
-import PluginRoute from '@/platform/game/PluginRoute.jsx';
 import '@/styles/hub.css';
 
 /**
@@ -26,7 +25,6 @@ const Home = page(() => import('@/pages/Home.jsx'), 'Home');
 const Leaderboard = page(() => import('@/pages/Leaderboard.jsx'), 'Leaderboard');
 const Profile = page(() => import('@/pages/Profile.jsx'), 'Profile');
 const GameDetail = page(() => import('@/pages/GameDetail.jsx'), 'GameDetail');
-const GameTables = page(() => import('@/pages/GameTables.jsx'), 'GameTables');
 const NotFound = page(() => import('@/pages/NotFound.jsx'), 'NotFound');
 
 // Rooms, friends, accounts
@@ -58,8 +56,8 @@ function ScrollTop() {
 }
 
 /**
- * Redirect that keeps what an old link carried: `location.state` (e.g. a campaign chapter), the query string
- * and the hash. If `to` has its own query, it wins over the same key from the old URL.
+ * Redirect that keeps what an old link carried: `location.state`, the query string and the hash.
+ * If `to` has its own query, it wins over the same key from the old URL.
  */
 function KeepRedirect({ to }) {
   const loc = useLocation();
@@ -76,6 +74,12 @@ function LegacyOnline() {
   return <KeepRedirect to={paths.online(BRAND.defaultGameId, code)} />;
 }
 
+/** Screens that no longer exist (offline play, open tables, story, campaign) land on their game's page. */
+function ToGamePage() {
+  const { gameId } = useParams();
+  return <Navigate replace to={gameId ? paths.game(gameId) : paths.hub()} />;
+}
+
 export default function App() {
   return (
     <AuthProvider>
@@ -90,20 +94,20 @@ export default function App() {
                 {LEGACY_REDIRECTS.map(([from, to]) => (
                   <Route key={from} path={from} element={<KeepRedirect to={to} />} />
                 ))}
-                <Route path="/game/offline" element={<KeepRedirect to={paths.offline(BRAND.defaultGameId)} />} />
                 <Route path="/game/online/:code" element={<LegacyOnline />} />
+                <Route path="/game/offline" element={<Navigate replace to={paths.game(BRAND.defaultGameId)} />} />
+                <Route path="/play/:gameId/offline" element={<ToGamePage />} />
+                <Route path="/games/:gameId/play" element={<ToGamePage />} />
+                <Route path="/games/:gameId/tables" element={<ToGamePage />} />
+                <Route path="/games/:gameId/x/:extra" element={<ToGamePage />} />
 
-                {/* Game screens: full screen, no hub chrome */}
-                <Route path="/play/:gameId/offline" element={<PluginRoute kind="offlineGame" fullscreen />} />
+                {/* Game screen: full screen, no hub chrome */}
                 <Route path="/play/:gameId/online/:code" element={<OnlineGame />} />
 
                 {/* Hub screens */}
                 <Route element={<AppShell />}>
                   <Route index element={<Home />} />
                   <Route path="/games/:gameId" element={<GameDetail />} />
-                  <Route path="/games/:gameId/play" element={<PluginRoute kind="offlineSetup" />} />
-                  <Route path="/games/:gameId/tables" element={<GameTables />} />
-                  <Route path="/games/:gameId/x/:extra" element={<PluginRoute kind="extra" />} />
                   <Route path="/leaderboard" element={<Leaderboard />} />
                   <Route path="/profile" element={<Profile />} />
                   <Route path="/friends" element={<Friends />} />

@@ -12,7 +12,7 @@ import ConfirmDialog from './ui/ConfirmDialog.jsx';
 import { LevelPips } from './ui/TileChip.jsx';
 import { tileAccent, useHeld, useStateLike } from './ui/helpers.js';
 
-const REASONS = { rent: 'Rent', tax: 'Property tax', card: 'Kismet card', bail: 'Bail', film: 'Film City fee', other: 'Payment' };
+const REASONS = { rent: 'Rent', tax: 'Tax', card: 'Card payment', bail: 'Bail', other: 'Payment' };
 
 export default function DebtSheet({ session }) {
   const { view, options: o, me, busy } = session;

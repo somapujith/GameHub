@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useAuth } from '@/lib/auth.jsx';
-import { useSettings } from './stores.js';
-import { playSfx, unlockAudio } from './audio.js';
+import { progressOf, useProfile, useSettings } from './stores.js';
+import { playSfx, unlockAudio } from './sound.js';
 
 /** True when the user asked for reduced motion (OS preference or the in-app setting). */
 export function useReducedMotion() {
@@ -29,6 +29,13 @@ export function useAccount() {
     guest: !!user && !!user.isGuest,
     auth,
   };
+}
+
+/** Level, XP and coins for the signed-in player (see `progressOf`); `info` is `levelInfo(xp)`. */
+export function useProgress() {
+  const [profile] = useProfile();
+  const { user } = useAccount();
+  return useMemo(() => progressOf(user, profile), [user, profile]);
 }
 
 /**

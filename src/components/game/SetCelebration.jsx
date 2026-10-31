@@ -1,6 +1,6 @@
 // Brief banner + confetti when the LOCAL player completes a colour set (buy, auction or trade).
 // Detected from the animated board ownership, so it lands together with the board animation.
-// Mounted inside .hg-boardwrap; never blocks taps.
+// Mounted inside .hg-boardwrap (over the board); never blocks taps.
 import { useEffect, useRef, useState } from 'react';
 import Confetti from './ui/Confetti.jsx';
 import Icon from './ui/Icon.jsx';

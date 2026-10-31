@@ -7,8 +7,8 @@ import { errorMessage } from '@/lib/api.js';
 import { CoinIcon } from '@/components/shell/icons.jsx';
 import { fmtNum, radioKeyNav } from '@/components/shell/ui.jsx';
 import { useToast } from '@/components/shell/Toast.jsx';
-import { useAccount } from '@/components/shell/hooks.js';
-import { levelInfo, pctOf, useProfile } from '@/components/shell/stores.js';
+import { useAccount, useProgress } from '@/components/shell/hooks.js';
+import { pctOf, useProfile } from '@/components/shell/stores.js';
 import Ava from './Ava.jsx';
 
 const MAX_NAME = 20;
@@ -26,7 +26,7 @@ export default function ProfileHeader() {
   const [draft, setDraft] = useState(name);
   useEffect(() => setDraft(name), [name]);
 
-  const li = levelInfo(profile.xp);
+  const { info: li, coins } = useProgress();
   const pct = pctOf(li);
 
   // The local profile is the source of truth offline; signed-in players also get it saved on the server.
@@ -55,7 +55,7 @@ export default function ProfileHeader() {
   };
 
   const current = (AVATAR_PRESETS || []).find((a) => a.id === avatar);
-  const status = account ? { text: 'Signed in', tone: 'good' } : guest ? { text: 'Guest account', tone: '' } : { text: 'Offline profile', tone: '' };
+  const status = account ? { text: 'Signed in', tone: 'good' } : guest ? { text: 'Guest account', tone: '' } : { text: 'Not signed in', tone: '' };
 
   return (
     <section className="hub-panel hh2-pro" aria-labelledby="hh2-pro-h">
@@ -95,10 +95,10 @@ export default function ProfileHeader() {
             <i style={{ width: `${pct}%` }} />
           </div>
         </div>
-        <div className="hh2-pro__coins" aria-label={`${fmtNum(profile.coins)} coins`}>
+        <div className="hh2-pro__coins" aria-label={`${fmtNum(coins)} coins`}>
           <CoinIcon size={26} />
           <span>
-            <b>{fmtNum(profile.coins)}</b>
+            <b>{fmtNum(coins)}</b>
             <small>Coins</small>
           </span>
         </div>

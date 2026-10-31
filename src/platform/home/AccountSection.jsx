@@ -61,7 +61,7 @@ export default function AccountSection() {
         </div>
       ) : (
         <div className="hh2-account__row">
-          <p className="hub-muted hh2-account__text">You are playing offline on this device. Sign in to save progress, add friends and play online tables.</p>
+          <p className="hub-muted hh2-account__text">You are not signed in yet. Sign in to save your progress, add friends and get invites.</p>
           <Link to={paths.login(paths.profile())} className="hub-btn hub-btn--primary">
             <Icon name="login" size={18} /> Sign in
           </Link>

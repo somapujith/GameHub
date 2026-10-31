@@ -40,8 +40,8 @@
   --p5: #b794f6;
   --p6: #ff9f43;
 
-  --font-display: 'Segoe UI', system-ui, -apple-system, 'Noto Sans Telugu', sans-serif;
-  --font-body: 'Segoe UI', system-ui, -apple-system, 'Noto Sans Telugu', sans-serif;
+  --font-display: 'Segoe UI', system-ui, -apple-system, sans-serif;
+  --font-body: 'Segoe UI', system-ui, -apple-system, sans-serif;
 
   --radius-s: 8px;
   --radius-m: 14px;

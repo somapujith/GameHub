@@ -8,7 +8,7 @@ const INT_MAX = 2147483647;
 
 /**
  * Turn a finished room into plain rows. Pure: no I/O.
- * `room` needs { matchId, code, startedAt, endedAt, state, meta?, players:[{id,name,isBot}] };
+ * `room` needs { matchId, code, startedAt, endedAt, state, meta?, players:[{id,name}] };
  * `adapter` is the game's adapter (see worker/games/index.js).
  */
 export function buildMatchRecord(room, adapter) {
@@ -16,15 +16,13 @@ export function buildMatchRecord(room, adapter) {
   const seats = new Map(room.players.map((p) => [p.id, p]));
   const n = res.standings.length;
   const legacy = res.legacy || null;
-  const isBotRow = (row) => !seats.get(row.id) || !!seats.get(row.id).isBot;
 
   const players = res.standings.map((row) => {
     const seat = seats.get(row.id);
-    const isBot = isBotRow(row);
     return {
-      user_id: isBot ? null : row.id,
+      user_id: row.id,
       name: (seat && seat.name) || 'Player',
-      is_bot: isBot,
+      is_bot: false, // column kept for compatibility: every seat is a real player
       rank: row.rank,
       final_worth: Math.round(row.score),
       rent_earned: Math.round(row.stats?.rentEarned || 0),
@@ -33,7 +31,6 @@ export function buildMatchRecord(room, adapter) {
   });
 
   const users = res.standings
-    .filter((row) => !isBotRow(row))
     .map((row) => {
       const won = res.winnerId === row.id;
       const { xp, coins } = matchRewards({ won, rank: row.rank, playerCount: n });
@@ -61,7 +58,7 @@ export function buildMatchRecord(room, adapter) {
     startedAt: new Date(room.startedAt).toISOString(),
     endedAt: new Date(room.endedAt || Date.now()).toISOString(),
     rounds: Number.isFinite(res.rounds) ? res.rounds : 0,
-    winnerId: winner && !winner.isBot ? winner.id : null,
+    winnerId: winner ? winner.id : null,
     winReason: res.reason || null,
     goal: legacy ? legacy.goal ?? null : null,
     maxRounds: legacy ? legacy.maxRounds ?? null : null,
@@ -69,8 +66,8 @@ export function buildMatchRecord(room, adapter) {
     playerCount: n,
     players,
     users,
-    // every seat, for the rating maths (humans are rated against the average of the others)
-    seats: res.standings.map((row) => ({ id: row.id, rank: row.rank, isBot: isBotRow(row) })),
+    // every seat, for the rating maths (each player is rated against the average of the others)
+    seats: res.standings.map((row) => ({ id: row.id, rank: row.rank })),
   };
 }
 

@@ -1,7 +1,6 @@
 // The online pages' only door to the game registry (`src/games/registry.js`, owned by platform-core).
 // Everything here is defensive: an unknown id, a missing registry entry or a throwing loader never crashes a page.
 import { getGame, liveGames } from '@/games/registry.js';
-import { DEFAULT_GAME_ID } from './gameRoute.js';
 
 /** The manifest of a game, or null. */
 export function gameOf(id) {
@@ -26,11 +25,6 @@ export function inviteGames() {
     list = [];
   }
   return list.filter((g) => g && g.status !== 'coming_soon' && (!g.modes || g.modes.friends !== false) && g.loaders && g.loaders.onlineGame);
-}
-
-/** The game used when something does not say which one (old links, `?host=1`). */
-export function defaultGame() {
-  return gameOf(DEFAULT_GAME_ID) || inviteGames()[0] || null;
 }
 
 /** The component a module exports for a page: the default export, else the first exported function. */

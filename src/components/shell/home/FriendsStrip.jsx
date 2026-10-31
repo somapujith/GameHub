@@ -78,7 +78,7 @@ export default function FriendsStrip() {
           )
         }
       >
-        {status === 'auth' ? 'Sign in again to see your friends.' : 'We cannot reach the server right now. Games against bots still work.'}
+        {status === 'auth' ? 'Sign in again to see your friends.' : 'We cannot reach the server right now.'}
       </Prompt>
     );
   } else if (!friends.length) {

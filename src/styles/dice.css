@@ -1,53 +1,159 @@
-/* The one die at the heart of the table. The roll button is in the player rail. */
-.hb-dice.hb-dice--single {
-  --die: clamp(38px, 10.8cqw, 68px);
+/* The die of the control panel: one 3D cube on a small felt tray.
+   Self-contained: sizes come from --die, which follows the control panel's container (cqmin). */
+
+/* visually hidden, still announced (shared by the whole control panel) */
+.cp-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.cp-dice {
+  --die: clamp(30px, 11cqmin, 58px);
   position: relative;
-  gap: 1.9cqw;
-  padding: 1.1cqw 2cqw .5cqw;
+  display: inline-flex;
+  flex: none;
+  flex-direction: column;
+  align-items: center;
+  gap: calc(var(--die) * .12);
+  margin: 0;
+  padding: calc(var(--die) * .34) calc(var(--die) * .36) calc(var(--die) * .14);
+  border: 2px solid #0d3b32;
+  border-radius: calc(var(--die) * .3);
+  background: radial-gradient(120% 110% at 50% 0%, #2f9279 0%, #1b6a57 62%, #145343 100%);
+  box-shadow: inset 0 2px 7px #00000066, 0 1px 0 #ffffffaa;
+  color: #e9f6ee;
   pointer-events: none;
 }
-.hb-dice--single .hb-dice__row { gap: 0; padding: 1.4cqw 0 0; }
-.hb-dice--single .hb-face {
-  border: 1px solid #d9dfe3;
-  border-radius: calc(var(--die) * .2);
-  background: linear-gradient(145deg, #fff 12%, #fbfcfb 55%, #d5dcdf);
-  box-shadow: inset 0 0 calc(var(--die) * .1) #b8c4cd66, inset 0 0 0 1px #fff;
-}
-.hb-dice--single .hb-pip {
-  width: 75%;
-  height: 75%;
-  background: radial-gradient(circle at 35% 30%, #ffe67b 0%, #f5c84b 55%, #c8942e 100%);
-  box-shadow: inset 0 1px 2px #976b2355, 0 1px 0 #fff;
-}
-.hb-dice--single .hb-dice__hint {
-  min-height: 2.5cqw;
-  padding: .4cqw 1cqw;
-  color: #365465;
-  font-size: clamp(10px, 2.1cqw, 13px);
-  font-weight: 650;
-  letter-spacing: 0;
-}
-.hb-dice--single .hb-dice__assist {
-  color: #527e31;
-  font-size: clamp(9px, 1.8cqw, 11px);
+.cp-dice__row { display: flex; align-items: center; padding-bottom: calc(var(--die) * .12); }
+
+.cp-dice__hint {
+  min-height: 1.3em;
+  color: #e9f6ee;
+  font-size: clamp(10px, 2.2cqmin, 12.5px);
   font-weight: 700;
+  line-height: 1.3;
+  white-space: nowrap;
 }
-.hb-dice--single .hb-cube.is-tumbling { animation: hh-one-die-tumble .78s linear infinite; }
-.hb-dice--single .is-tossing .hb-die3d__air { animation: hh-one-die-toss .78s ease-in-out infinite; }
-.hb-dice--single .is-landing .hb-die3d__air,
-.hb-dice--single .is-landing .hb-die3d__shadow { animation-duration: var(--hb-die-settle, 560ms); }
-@keyframes hh-one-die-tumble {
+.cp-dice__assist {
+  position: absolute;
+  right: -2px;
+  bottom: calc(100% + 3px);
+  padding: 1px 7px;
+  border-radius: 99px;
+  background: #e7f4cf;
+  color: #31580f;
+  font-size: clamp(9px, 1.9cqmin, 11px);
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.cp-pip {
+  display: block;
+  place-self: center;
+  width: 76%;
+  height: 76%;
+  border-radius: 50%;
+  background: radial-gradient(circle at 34% 30%, #46635f 0%, #14292a 62%, #0b1819 100%);
+  box-shadow: 0 1px 0 #ffffffcc;
+}
+
+/* 3D die: shadow on the felt, an "air" layer that tosses, and the preserve-3d cube */
+.cp-die3d { position: relative; flex: none; width: var(--die); height: var(--die); }
+.cp-die3d__shadow {
+  position: absolute;
+  left: 6%;
+  right: 6%;
+  bottom: -20%;
+  height: 24%;
+  border-radius: 50%;
+  background: radial-gradient(ellipse at center, #00000099 0%, #0000004d 55%, transparent 76%);
+  filter: blur(calc(var(--die) * .035));
+}
+.cp-die3d__air { position: absolute; inset: 0; perspective: calc(var(--die) * 5.5); }
+.cp-cube {
+  position: relative;
+  display: block;
+  width: 100%;
+  height: 100%;
+  transform-style: preserve-3d;
+  will-change: transform;
+}
+.cp-face {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  grid-template-rows: repeat(3, 1fr);
+  padding: calc(var(--die) * .13);
+  box-sizing: border-box;
+  border: 1px solid #9eaeaa;
+  border-radius: calc(var(--die) * .2);
+  background: linear-gradient(145deg, #ffffff 12%, #f6f9f6 55%, #d3dcd8);
+  box-shadow: inset 0 0 calc(var(--die) * .1) #9fb0ab88, inset 0 0 0 1px #fff;
+  backface-visibility: hidden;
+}
+.cp-face--1 { transform: translateZ(calc(var(--die) / 2)); }
+.cp-face--6 { transform: rotateY(180deg) translateZ(calc(var(--die) / 2)); }
+.cp-face--2 { transform: rotateX(90deg) translateZ(calc(var(--die) / 2)); }
+.cp-face--5 { transform: rotateX(-90deg) translateZ(calc(var(--die) / 2)); }
+.cp-face--3 { transform: rotateY(90deg) translateZ(calc(var(--die) / 2)); }
+.cp-face--4 { transform: rotateY(-90deg) translateZ(calc(var(--die) / 2)); }
+
+/* free tumble while rolling; starts from the pose the die is in (--from is set by Dice.jsx) */
+.cp-cube.is-tumbling { animation: cp-die-spin-a .78s linear infinite; }
+.cp-die3d.is-tossing .cp-die3d__air { animation: cp-die-toss-a .78s ease-in-out infinite; }
+.cp-die3d.is-tossing .cp-die3d__shadow { animation: cp-die-shadow .78s ease-in-out infinite; }
+
+/* landing: a short bounce with the shadow squashing under it */
+.cp-die3d.is-landing .cp-die3d__air { animation: cp-die-land var(--cp-die-settle, 560ms) cubic-bezier(.3, 0, .4, 1) both; }
+.cp-die3d.is-landing .cp-die3d__shadow { animation: cp-die-land-shadow var(--cp-die-settle, 560ms) ease-out both; }
+
+@keyframes cp-die-spin-a {
   0% { transform: var(--from) rotate3d(1, .7, .3, 0deg); }
   100% { transform: var(--from) rotate3d(1, .7, .3, 720deg); }
 }
-@keyframes hh-one-die-toss {
+@keyframes cp-die-toss-a {
   0%, 100% { transform: translate(0, 0); }
-  25% { transform: translate(-.6cqw, -2.4cqw); }
-  50% { transform: translate(.6cqw, -.1cqw); }
-  75% { transform: translate(-.3cqw, -1.3cqw); }
+  22% { transform: translate(calc(var(--die) * -.1), calc(var(--die) * -.42)); }
+  48% { transform: translate(calc(var(--die) * .06), calc(var(--die) * -.03)); }
+  74% { transform: translate(calc(var(--die) * -.04), calc(var(--die) * -.24)); }
 }
-.hb-dice--single.is-reduced *,
-[data-motion="reduced"] .hb-dice--single * { animation: none !important; transition: none !important; }
+@keyframes cp-die-shadow {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  22%, 74% { transform: scale(.7); opacity: .55; }
+  48% { transform: scale(1.05); opacity: 1; }
+}
+@keyframes cp-die-land {
+  0% { transform: translateY(calc(var(--die) * -.3)); }
+  36% { transform: translateY(0); }
+  54% { transform: translateY(calc(var(--die) * -.14)); }
+  72% { transform: translateY(0); }
+  86% { transform: translateY(calc(var(--die) * -.05)); }
+  100% { transform: translateY(0); }
+}
+@keyframes cp-die-land-shadow {
+  0% { transform: scale(.7); opacity: .5; }
+  36% { transform: scale(1.12); opacity: 1; }
+  54% { transform: scale(.84); opacity: .7; }
+  72% { transform: scale(1.04); opacity: 1; }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+/* tight panels: the hint line goes (the log already says what was rolled) */
+@container cp (max-width: 420px) {
+  .cp-dice { padding-bottom: calc(var(--die) * .3); }
+  .cp-dice__hint { display: none; }
+}
+
+.cp-dice.is-reduced *,
+[data-motion="reduced"] .cp-dice * { animation: none !important; transition: none !important; }
 @media (prefers-reduced-motion: reduce) {
-  .hb-dice--single * { animation: none !important; transition: none !important; }
+  .cp-dice * { animation: none !important; transition: none !important; }
 }

@@ -10,12 +10,8 @@ const noop = () => {};
 
 export const DEFAULT_SETTINGS = {
   sfx: true,
-  voice: true,
-  tts: true,
   volume: 0.8,
-  subtitles: 'te',
   reducedMotion: false,
-  actors: {},
 };
 
 export const DEFAULT_PROFILE = {
@@ -27,7 +23,6 @@ export const DEFAULT_PROFILE = {
   stats: { games: 0, wins: 0, rentEarned: 0, bestWorth: 0, propertiesBought: 0 },
   lastDailyClaim: null,
   dailyStreak: 0,
-  seenStory: false,
 };
 
 function pair(r) {
@@ -36,7 +31,7 @@ function pair(r) {
 
 export function useSettings() {
   const [s, update] = pair(storage.useSettings?.());
-  const settings = useMemo(() => ({ ...DEFAULT_SETTINGS, ...(s || {}), actors: { ...(s?.actors || {}) } }), [s]);
+  const settings = useMemo(() => ({ ...DEFAULT_SETTINGS, ...(s || {}) }), [s]);
   return [settings, update];
 }
 
@@ -47,15 +42,6 @@ export function useProfile() {
     [p],
   );
   return [profile, update];
-}
-
-export function useCampaign() {
-  const r = storage.useCampaign?.();
-  const c = Array.isArray(r) ? r[0] : r;
-  return useMemo(
-    () => ({ unlocked: Number(c?.unlocked) || 1, completed: Array.isArray(c?.completed) ? c.completed : [] }),
-    [c],
-  );
 }
 
 export function levelInfo(xp) {
@@ -70,21 +56,17 @@ export function levelInfo(xp) {
   return { level: 1 + Math.floor((Number(xp) || 0) / need), into, need, pct: into / need };
 }
 
-export function safeLoadGame() {
-  try {
-    const g = storage.loadGame?.();
-    return g && g.state ? g : null;
-  } catch {
-    return null;
-  }
-}
-
-export function safeClearGame() {
-  try {
-    storage.clearGame?.();
-  } catch {
-    /* ignore */
-  }
+/**
+ * Level, XP and coins. A signed-in player (guests included) gets the server's numbers, which finished matches
+ * write; the on-device profile is only the fallback while signed out. Returns `{ xp, coins, info, level }`.
+ */
+export function progressOf(user, profile) {
+  const serverXp = Number(user?.xp);
+  const serverCoins = Number(user?.coins);
+  const xp = user && Number.isFinite(serverXp) ? serverXp : Number(profile?.xp) || 0;
+  const coins = user && Number.isFinite(serverCoins) ? serverCoins : Number(profile?.coins) || 0;
+  const info = levelInfo(xp);
+  return { xp, coins, info, level: info.level };
 }
 
 export function claimDaily() {

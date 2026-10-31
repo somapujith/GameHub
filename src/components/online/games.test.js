@@ -7,19 +7,19 @@ const live = {
   modes: { friends: true },
   loaders: { onlineGame: () => Promise.resolve({ default: function APage() {} }) },
 };
-const bots = { id: 'bots-only', name: 'Bots', status: 'live', modes: { friends: false }, loaders: { onlineGame: () => Promise.resolve({}) } };
+const noFriends = { id: 'no-friends', name: 'No friends', status: 'live', modes: { friends: false }, loaders: { onlineGame: () => Promise.resolve({}) } };
 const soon = { id: 'soon', name: 'Soon', status: 'coming_soon' };
 const noOnline = { id: 'offline-only', name: 'Offline', status: 'live', loaders: {} };
 
 vi.mock('@/games/registry.js', () => {
-  const all = [live, bots, soon, noOnline];
+  const all = [live, noFriends, soon, noOnline];
   return {
     getGame: (id) => all.find((g) => g.id === id) || null,
     liveGames: () => all.filter((g) => g.status === 'live'),
   };
 });
 
-const { defaultGame, gameName, gameOf, inviteGames, loadOnlineGame, loadedOnlineGame, pickComponent, warmOnlineGame } = await import('./games.js');
+const { gameName, gameOf, inviteGames, loadOnlineGame, loadedOnlineGame, pickComponent, warmOnlineGame } = await import('./games.js');
 
 describe('registry access', () => {
   it('finds games and never throws on junk ids', () => {
@@ -35,9 +35,6 @@ describe('registry access', () => {
   });
   it('invite choices are live, friends-capable games with an online page', () => {
     expect(inviteGames().map((g) => g.id)).toEqual(['a-game']);
-  });
-  it('falls back to the first invite game when the default game is missing', () => {
-    expect(defaultGame()).toBe(live);
   });
 });
 

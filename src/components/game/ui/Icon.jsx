@@ -19,12 +19,6 @@ const PATHS = {
   send: <path d="M3.5 11.2l17-7.7-6.7 17-2.7-7.1zM10.9 13.4l3.4-3.4" />,
   crown: <path d="M3 8.2l4.6 4 4.4-7 4.4 7 4.6-4-1.9 10.8H4.9z" />,
   close: <path d="M6 6l12 12M18 6L6 18" />,
-  bot: (
-    <>
-      <rect x="4.5" y="8" width="15" height="11" rx="3" />
-      <path d="M12 8V4.5M9 13v1.5M15 13v1.5M2.5 12.5v3M21.5 12.5v3" />
-    </>
-  ),
   lock: (
     <>
       <rect x="5" y="10.5" width="14" height="10" rx="2.5" />

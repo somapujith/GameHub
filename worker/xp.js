@@ -16,8 +16,8 @@ export function levelFromXp(xp) {
 }
 
 /**
- * Rewards for one finished match, for one human player.
- * rank: 1 = winner. playerCount: total seats (humans + bots).
+ * Rewards for one finished match, for one player.
+ * rank: 1 = winner. playerCount: total seats.
  */
 export function matchRewards({ won, rank, playerCount }) {
   const behind = Math.max(0, playerCount - rank);

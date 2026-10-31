@@ -9,17 +9,15 @@
 //
 //   required:  id, name, minPlayers, maxPlayers, defaultSettings,
 //              validateSettings(raw) -> { ok:true, settings } | { ok:false, error }   (strict, untrusted input)
-//              createGame({ players:[{id,name,avatar,isBot?,bot?}], settings, seed }) -> state
+//              createGame({ players:[{id,name,avatar}], settings, seed }) -> state
 //              applyAction(state, action) -> { state, events, error? }                (pure; invalid -> same state + error)
-//              nextBotMove(state, rnd) -> action | null       (the move some bot should make now)
 //              turnPlayerId(state) -> playerId | null          (who the idle timer waits for)
 //              deadlines(state) -> [{ key, afterMs, playerId, action }]   (game timers besides the turn timer;
 //                                  `key` identifies one timer instance, it runs afterMs after it first appears)
-//              idleAction(state, playerId) -> action | null    (auto-play for an AFK / disconnected human)
+//              idleAction(state, playerId) -> action | null    (auto-play for an AFK / disconnected player)
 //              isOver(state) -> boolean
 //              result(state, meta) -> { winnerId, reason, rounds?, standings:[{ id, rank, score, stats? }], legacy? }
 //              redact(state, viewerId) -> state                (hide secrets; return `state` itself when nothing is hidden)
-//              rivals(count, taken?) -> [{ name, avatar, bot }]   (bots added in the lobby)
 //
 //   optional (all have a harmless default):
 //              defaultMaxPlayers            seats of a new room (default min(4, maxPlayers))
@@ -65,14 +63,12 @@ export const REQUIRED_METHODS = [
   'validateSettings',
   'createGame',
   'applyAction',
-  'nextBotMove',
   'turnPlayerId',
   'deadlines',
   'idleAction',
   'isOver',
   'result',
   'redact',
-  'rivals',
 ];
 
 /** Names of everything an adapter is missing from the required interface ([] = conformant). */

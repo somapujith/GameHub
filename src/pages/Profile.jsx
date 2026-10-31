@@ -7,17 +7,15 @@ import BadgeGrid from '@/platform/home/BadgeGrid.jsx';
 import SettingsSection from '@/platform/home/SettingsSection.jsx';
 import AccountSection from '@/platform/home/AccountSection.jsx';
 import AboutSection from '@/platform/home/AboutSection.jsx';
-import { useAccount } from '@/components/shell/hooks.js';
-import { levelInfo, useProfile } from '@/components/shell/stores.js';
+import { useAccount, useProgress } from '@/components/shell/hooks.js';
 import '@/styles/hubhome.css';
 
 /** `/profile` — avatar and name, level / XP / coins, per-game stats, badges, settings (the old Settings page) and account. */
 export default function Profile() {
   const { hash } = useLocation();
-  const [profile] = useProfile();
   const { user } = useAccount();
+  const { level } = useProgress();
   const games = useMemo(liveList, []);
-  const level = levelInfo(profile.xp).level;
 
   // `/profile#settings` (the old /settings link target) scrolls to the settings block.
   useEffect(() => {
@@ -30,8 +28,8 @@ export default function Profile() {
     <div className="hub-page hh2 hh2-profilepage">
       <h1 className="hub-sr">Your profile</h1>
       <ProfileHeader />
-      <GameStatCards games={games} user={user} profile={profile} />
-      <BadgeGrid games={games} user={user} profile={profile} level={level} />
+      <GameStatCards games={games} user={user} />
+      <BadgeGrid games={games} user={user} level={level} />
       <SettingsSection />
       <div className="hh2-duo">
         <AccountSection />

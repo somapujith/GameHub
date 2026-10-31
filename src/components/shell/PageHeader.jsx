@@ -3,9 +3,9 @@ import { Icon } from './icons.jsx';
 
 /**
  * Page title block. `back`: true (history back, falling back to Home) or a path.
- * `te` is the optional Telugu sub-title, `actions` renders on the right.
+ * `actions` renders on the right.
  */
-export default function PageHeader({ title, te, subtitle, back, eyebrow, actions, icon, id = 'hh-page-title' }) {
+export default function PageHeader({ title, subtitle, back, eyebrow, actions, icon, id = 'hh-page-title' }) {
   const navigate = useNavigate();
   const goBack = () => {
     if (typeof back === 'string') navigate(back);
@@ -28,11 +28,6 @@ export default function PageHeader({ title, te, subtitle, back, eyebrow, actions
         {eyebrow && <p className="hh-pageheader__eyebrow">{eyebrow}</p>}
         <h1 id={id} className="hh-pageheader__title">
           {title}
-          {te && (
-            <span className="hh-pageheader__te" lang="te">
-              {te}
-            </span>
-          )}
         </h1>
         {subtitle && <p className="hh-pageheader__sub">{subtitle}</p>}
       </div>

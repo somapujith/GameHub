@@ -1,21 +1,40 @@
 /* ==========================================================================
-   Hyderabad Tycoon: board, tiles, pawns, dice, centre stage.
-   Everything is sized in container-query units of `.hb-board` (1cqw = 1% of
-   the board's width), so the board scales from 340px to 900px+ untouched.
-   Inside `.hb-stage__panel` (its own container) 1cqw = 1% of the panel width.
+   Hyderabad Tycoon: the board. "Tabletop Monopoly, Hyderabad skin": a pale
+   mint-cream board with thin dark grid lines, a colour band on the inner edge
+   of every property, big icon corners, pawns that are lifted and set down.
+
+   The dice and the centre panel live in controlpanel.css / dice.css.
+
+   Layout: an 11x11 grid. The two corner tracks are 1.4 edge tracks wide, so an
+   edge tile is 1u x 1.4u (top / bottom rows) or 1.4u x 1u (left / right
+   columns) and a corner is 1.4u square. `--hb-u` is ONE edge tile, measured
+   from the board's own width (1cqw = 1% of `.hb-board`), so the parent only
+   decides how wide the board is and every size below scales with it.
+   `.hb-center` is the 9x9 region the ring encloses (the control panel).
    ========================================================================== */
 
+/* Registered so `--hb-u` resolves to a plain length on `.hb-grid` and stays correct
+   inside descendants that are containers themselves (the control panel). */
+@property --hb-u {
+  syntax: '<length>';
+  inherits: true;
+  initial-value: 0px;
+}
+
 .hb-board {
-  --hb-ink: var(--ink, #1b1340);
-  --hb-ink-dim: var(--ink-dim, #4a4175);
-  --hb-cream: #fff8e8;
-  --hb-gold: var(--gold, #ffc857);
+  --hb-ink: #17302c;
+  --hb-ink-dim: #4a6560;
+  --hb-rule: #1f3a35; /* grid lines + frame */
+  --hb-paper: #e8f3ec; /* tile surface (mint cream) */
+  --hb-felt: #d3e8dc; /* the middle of the board */
+  --hb-snatch: #e0197d; /* the contested tile while a snatch window is open */
+  --hb-gold: var(--gold, #ffca7a);
 
   position: relative;
   width: 100%;
   aspect-ratio: 1 / 1;
   container-type: inline-size;
-  font-family: var(--font-display, system-ui, sans-serif);
+  font-family: var(--font-body, 'Segoe UI', system-ui, sans-serif);
   color: var(--hb-ink);
   user-select: none;
   -webkit-user-select: none;
@@ -29,57 +48,99 @@
   box-sizing: border-box;
 }
 
-.hb-sr {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  margin: -1px;
-  padding: 0;
-  overflow: hidden;
-  clip: rect(0 0 0 0);
-  white-space: nowrap;
-  border: 0;
-}
-
-/* ---- frame ------------------------------------------------------------- */
+/* ---- frame + grid --------------------------------------------------------- */
 
 .hb-frame {
+  --hb-pad: 0.6cqw;
   position: absolute;
   inset: 0;
-  padding: 1cqw;
-  border-radius: 4cqw;
-  background: linear-gradient(160deg, #fffefa 0%, #f7efdc 100%);
+  padding: var(--hb-pad);
+  border-radius: 1.6cqw;
+  background: var(--hb-rule);
   box-shadow:
-    0 1.5cqw 0 #8697ae,
-    0 1.5cqw 0 0.2cqw rgba(27, 19, 64, 0.2),
-    0 3.4cqw 5.5cqw rgba(3, 1, 20, 0.6);
+    0 0 0 1px rgba(255, 255, 255, 0.1),
+    0 1.2cqw 3.2cqw rgba(0, 0, 0, 0.55);
 }
 
 .hb-frame__sheen {
   position: absolute;
   inset: 0;
-  z-index: 3;
+  z-index: 6;
   border-radius: inherit;
   pointer-events: none;
-  box-shadow:
-    inset 0 0 0 0.35cqw rgba(255, 255, 255, 0.95),
-    inset 0 0.7cqw 1.8cqw rgba(27, 19, 64, 0.2),
-    inset 0 -0.5cqw 1.2cqw rgba(27, 19, 64, 0.1);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.14);
+}
+
+/* corner tracks 1.4x an edge track; `.hb-odds` shares the template */
+.hb-grid,
+.hb-odds {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) repeat(9, minmax(0, 1fr)) minmax(0, 1.4fr);
+  grid-template-rows: minmax(0, 1.4fr) repeat(9, minmax(0, 1fr)) minmax(0, 1.4fr);
 }
 
 .hb-grid {
+  /* one edge tile = (board - frame padding) / (9 + 2 x 1.4) */
+  --hb-u: calc((100cqw - 2 * var(--hb-pad)) / 11.8);
+  --hb-fs-name: max(calc(var(--hb-u) * 0.19), 5.5px);
+  --hb-fs-price: max(calc(var(--hb-u) * 0.185), 5.2px);
+  --hb-fs-pill: max(calc(var(--hb-u) * 0.17), 5px);
   position: relative;
   width: 100%;
   height: 100%;
-  display: grid;
-  grid-template-columns: repeat(8, minmax(0, 1fr));
-  grid-template-rows: repeat(8, minmax(0, 1fr));
+  background: var(--hb-felt);
 }
 
-/* ---- tiles ------------------------------------------------------------- */
+/* ---- the middle ------------------------------------------------------------ */
 
+.hb-center {
+  grid-column: 2 / span 9;
+  grid-row: 2 / span 9;
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  background:
+    radial-gradient(ellipse at 50% 40%, rgba(255, 255, 255, 0.4) 0%, transparent 70%),
+    var(--hb-felt);
+}
+
+/* the banner that fills the middle until a control panel is passed in */
+.hb-center__brand {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+}
+.hb-center__banner {
+  display: grid;
+  justify-items: center;
+  gap: calc(var(--hb-u) * 0.08);
+  padding: calc(var(--hb-u) * 0.22) calc(var(--hb-u) * 0.7);
+  background: #2a6b5c;
+  color: #fff7e6;
+  line-height: 1;
+  text-transform: uppercase;
+  box-shadow: inset 0 0 0 calc(var(--hb-u) * 0.04) rgba(255, 247, 230, 0.35);
+  transform: rotate(-32deg);
+}
+.hb-center__banner span {
+  font-size: calc(var(--hb-u) * 0.34);
+  font-weight: 600;
+  letter-spacing: 0.3em;
+}
+.hb-center__banner b {
+  font-size: calc(var(--hb-u) * 0.74);
+  font-weight: 800;
+  letter-spacing: 0.1em;
+}
+
+/* ---- tiles ----------------------------------------------------------------- */
+
+/* The 1px border + -0.5px margin make neighbouring tiles overlap exactly one border width:
+   a single collapsed hairline between tiles, like the table in the reference board. */
 .hb-tile {
-  --hb-bg: linear-gradient(180deg, #fffaf0 0%, #f8edd3 100%);
+  --paper: var(--hb-paper);
   appearance: none;
   position: relative;
   display: flex;
@@ -87,131 +148,100 @@
   align-items: stretch;
   min-width: 0;
   min-height: 0;
-  margin: 0;
+  margin: -0.5px;
   padding: 0;
-  border: 0;
+  border: 1px solid var(--hb-rule);
   font: inherit;
   color: var(--hb-ink);
   text-align: center;
-  background: var(--hb-bg);
-  box-shadow: inset 0 0 0 0.22cqw rgba(27, 19, 64, 0.17);
+  background: var(--paper);
   cursor: pointer;
   touch-action: manipulation;
   transition: transform 0.14s ease, box-shadow 0.18s ease, filter 0.18s ease;
 }
 
 .hb-tile.is-owned {
-  --hb-bg: linear-gradient(
-    180deg,
-    color-mix(in srgb, var(--o) 14%, #fffaf0) 0%,
-    color-mix(in srgb, var(--o) 30%, #f8edd3) 100%
-  );
+  background: color-mix(in srgb, var(--o) 11%, var(--paper));
 }
 
 @media (hover: hover) {
   .hb-tile:hover {
     z-index: 4;
-    transform: scale(1.09);
-    box-shadow:
-      inset 0 0 0 0.22cqw rgba(27, 19, 64, 0.17),
-      0 0.8cqw 2cqw rgba(27, 19, 64, 0.38);
-    filter: saturate(1.1) brightness(1.03);
+    transform: scale(1.07);
+    box-shadow: 0 calc(var(--hb-u) * 0.1) calc(var(--hb-u) * 0.3) rgba(10, 28, 24, 0.5);
+    filter: brightness(1.04);
   }
 }
 
 .hb-tile:active {
-  transform: scale(0.95);
+  transform: scale(0.96);
 }
 
 .hb-tile:focus-visible {
   z-index: 6;
-  outline: 0.55cqw solid #fff;
-  outline-offset: -0.55cqw;
-  box-shadow:
-    inset 0 0 0 0.55cqw var(--hb-gold),
-    0 0 2.4cqw rgba(255, 200, 87, 0.9);
+  outline: calc(var(--hb-u) * 0.07) solid #fff;
+  outline-offset: calc(var(--hb-u) * -0.07);
+  box-shadow: inset 0 0 0 calc(var(--hb-u) * 0.14) var(--hb-gold), 0 0 calc(var(--hb-u) * 0.5) rgba(255, 202, 122, 0.9);
 }
 
-/* outer corners of the board follow the frame's rounding */
-.hb-tile--bl { border-bottom-left-radius: 3.2cqw; }
-.hb-tile--br { border-bottom-right-radius: 3.2cqw; }
-.hb-tile--tr { border-top-right-radius: 3.2cqw; }
-.hb-tile--tl { border-top-left-radius: 3.2cqw; }
+/* the outer corners of the board follow the frame's rounding */
+.hb-tile--bl { border-bottom-left-radius: calc(1.6cqw - var(--hb-pad)); }
+.hb-tile--br { border-bottom-right-radius: calc(1.6cqw - var(--hb-pad)); }
+.hb-tile--tr { border-top-right-radius: calc(1.6cqw - var(--hb-pad)); }
+.hb-tile--tl { border-top-left-radius: calc(1.6cqw - var(--hb-pad)); }
 
-/* priced tiles: coloured header strip + body */
-/* The strip and the price tag derive from ONE size so the text can never outgrow the strip:
-   tag font -> tag height (1.25em) -> strip = tag + breathing room. Both have a pixel floor. */
-.hb-tile {
-  --tag-fs: max(2.65cqw, 8px);
-  --tag-h: calc(var(--tag-fs) * 1.25);
-  --head-h: max(calc(var(--tag-h) + 0.9cqw), calc(var(--tag-fs) * 1.25 + 4px));
-}
+/* Everything that is not a corner keeps its "inner" edge (the one facing the middle) first in the DOM:
+   the colour band of a property. Flex direction puts that edge on the right side of the board. */
+.hb-side--bottom { flex-direction: column; }
+.hb-side--top { flex-direction: column-reverse; }
+.hb-side--left { flex-direction: row-reverse; }
+.hb-side--right { flex-direction: row; }
 
-.hb-tile__head {
-  position: relative;
-  flex: 0 0 var(--head-h);
+/* colour band (properties) */
+.hb-tile__band {
+  flex: 0 0 27%;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--g, var(--hb-head, #64748b));
+  min-width: 0;
+  min-height: 0;
+  background: var(--g, #64748b);
   color: var(--gi, #fff);
-  box-shadow: inset 0 -0.25cqw 0 rgba(0, 0, 0, 0.18), inset 0 0.3cqw 0 rgba(255, 255, 255, 0.28);
 }
+.hb-side--bottom .hb-tile__band { border-bottom: 1px solid var(--hb-rule); }
+.hb-side--top .hb-tile__band { border-top: 1px solid var(--hb-rule); }
+.hb-side--left .hb-tile__band { border-left: 1px solid var(--hb-rule); }
+.hb-side--right .hb-tile__band { border-right: 1px solid var(--hb-rule); }
 
-/* Baloo's metrics put the glyphs ~0.3em above the middle of the line box, so the top padding
-   (0.6em) pushes the digits back down to the true centre of the tag. */
-.hb-tile__price {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  box-sizing: border-box;
-  height: var(--tag-h);
-  padding: 0.6em 0.5em 0;
-  border-radius: calc(var(--tag-h) * 0.3);
-  font-size: var(--tag-fs);
-  font-weight: 800;
-  line-height: 1;
-  letter-spacing: 0.01em;
-  white-space: nowrap;
-  text-shadow: 0 0.1cqw 0 rgba(0, 0, 0, 0.2);
-}
-
-/* owner flag: the price tag turns into a coloured, white-rimmed flag */
-.hb-tile.is-owned .hb-tile__price {
-  background: var(--o);
-  color: var(--oi, #fff);
-  text-shadow: none;
-  box-shadow: 0 0 0 0.3cqw #fff, 0 0.4cqw 0.8cqw rgba(0, 0, 0, 0.4);
-  transform: translateY(0.1cqw);
-}
-
+/* body: name + price (+ icon) */
 .hb-tile__body {
-  position: relative;
   flex: 1 1 0;
+  min-width: 0;
   min-height: 0;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 0.2cqw;
-  padding: 0.3cqw 0.25cqw 0.7cqw;
+  gap: calc(var(--hb-u) * 0.07);
+  padding: calc(var(--hb-u) * 0.06) calc(var(--hb-u) * 0.03);
+  overflow: hidden;
 }
+/* keep clear of the owner bar on the outer edge */
+.hb-side--bottom .hb-tile__body { padding-bottom: calc(var(--hb-u) * 0.15); }
+.hb-side--top .hb-tile__body { padding-top: calc(var(--hb-u) * 0.15); }
+.hb-side--left .hb-tile__body { padding-left: calc(var(--hb-u) * 0.15); }
+.hb-side--right .hb-tile__body { padding-right: calc(var(--hb-u) * 0.15); }
 
 .hb-tile__name {
   display: -webkit-box;
   -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
+  -webkit-line-clamp: 3;
   max-width: 100%;
   overflow: hidden;
-  /* Baloo's glyphs overshoot a tight line box: pad inside, cancel with a negative margin */
-  padding: 0.24em 0 0.28em;
-  margin: -0.24em 0 -0.28em;
-  position: relative;
-  top: 0.12em; /* the glyphs ride high in the line box; nudge them off the colour strip */
-  font-size: var(--fs, 2.7cqw);
+  font-size: var(--hb-fs-name);
   font-weight: 700;
-  line-height: 1.08;
-  letter-spacing: 0.005em;
+  line-height: 1.12;
+  letter-spacing: -0.01em;
   hyphens: manual;
   -webkit-hyphens: manual;
   overflow-wrap: normal;
@@ -220,95 +250,54 @@
   color: var(--hb-ink);
 }
 
-.hb-tile__name--sm {
-  display: block;
+.hb-tile__price {
+  max-width: 100%;
+  font-size: var(--hb-fs-price);
+  font-weight: 600;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
   white-space: nowrap;
-  font-weight: 700;
-  line-height: 1.05;
   color: var(--hb-ink-dim);
 }
 
-/* level pips: a tiny skyline in the owner's colour */
-.hb-pips {
-  position: absolute;
-  left: 50%;
-  bottom: 0.55cqw;
+/* name + price travel together (stations, utilities, tax); beside the icon on the wide side tiles */
+.hb-tile__txt {
+  flex: none;
+  max-width: 100%;
   display: flex;
-  align-items: flex-end;
-  gap: 0.28cqw;
-  transform: translateX(-50%);
-  pointer-events: none;
+  flex-direction: column;
+  align-items: center;
+  gap: calc(var(--hb-u) * 0.04);
 }
-
-.hb-pips i {
-  display: block;
-  width: 1cqw;
-  height: calc(0.9cqw + var(--k, 0) * 0.42cqw);
-  border-radius: 0.25cqw 0.25cqw 0.1cqw 0.1cqw;
-  background: var(--o, #3ddc97);
-  box-shadow: 0 0 0 0.18cqw #fff, 0 0.2cqw 0.3cqw 0.18cqw rgba(0, 0, 0, 0.25);
+.hb-side--left .hb-tile__body--icon,
+.hb-side--right .hb-tile__body--icon {
+  flex-direction: row;
+  gap: calc(var(--hb-u) * 0.05);
 }
-
-/* top of the ladder (MAX_LEVEL): a gold hotel badge instead of pips, with a golden shimmer */
-.hb-hotel {
-  position: absolute;
-  left: 50%;
-  bottom: 0.3cqw;
-  display: grid;
-  place-items: center;
-  width: 5.4cqw;
-  height: 2.5cqw;
-  border-radius: 99cqw;
-  background: linear-gradient(180deg, #fff0a6 0%, #ffc531 55%, #e39100 100%);
-  box-shadow: 0 0 0 0.22cqw #fff, 0 0 1.4cqw 0.3cqw rgba(255, 177, 0, 0.85), 0 0.4cqw 0.6cqw rgba(0, 0, 0, 0.3);
-  transform: translateX(-50%);
-  overflow: hidden;
-  pointer-events: none;
+.hb-side--left .hb-tile__body--icon { padding-left: calc(var(--hb-u) * 0.12); }
+.hb-side--right .hb-tile__body--icon { padding-right: calc(var(--hb-u) * 0.12); }
+.hb-side--left .hb-tile__body > .hb-tile__icon,
+.hb-side--right .hb-tile__body > .hb-tile__icon {
+  flex: 0 0 auto;
+  width: calc(var(--hb-u) * 0.42);
+  height: calc(var(--hb-u) * 0.42);
 }
-.hb-hotel svg {
-  display: block;
-  width: auto;
-  height: 84%;
-}
-/* built + two-line name: top-align it and keep it clear of the pips / hotel badge below */
-.hb-tile.is-multi .hb-tile__body {
-  justify-content: flex-start;
-  padding-top: 0.5cqw;
-}
-.hb-tile.is-multi .hb-tile__name {
-  top: 0;
-  font-size: min(var(--fs, 2.7cqw), 2.5cqw);
-  line-height: 1.02;
-}
-.hb-hotel::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(115deg, transparent 38%, rgba(255, 255, 255, 0.9) 50%, transparent 62%) no-repeat;
-  background-size: 260% 100%;
-  animation: hb-shimmer 2.4s linear infinite;
-}
-@keyframes hb-shimmer {
-  from { background-position: 160% 0; }
-  to { background-position: -60% 0; }
-}
-
-/* icon wrappers force whatever size the art asked for to fill the box */
-.hb-tile__icon,
-.hb-tile__icon > *,
-.hb-tile__icon svg {
+.hb-side--left .hb-tile__body > .hb-tile__txt,
+.hb-side--right .hb-tile__body > .hb-tile__txt {
+  flex: 1 1 0;
   min-width: 0;
 }
 
+/* icon wrappers force whatever size the art asked for to fill the box */
 .hb-tile__icon {
   flex: 1 1 0;
+  min-width: 0;
   min-height: 0;
   width: 100%;
   display: flex;
   align-items: center;
   justify-content: center;
 }
-
 .hb-tile__icon > *,
 .hb-tile__icon svg {
   display: block;
@@ -318,173 +307,341 @@
   aspect-ratio: 1;
 }
 
-.hb-tile__icon--lg {
-  flex: 1 1 0;
-}
+/* ---- buildings: a row of little houses in the band, one red hotel at the top of the ladder ---- */
 
-/* tile families */
-.hb-tile--transport {
-  --hb-bg: linear-gradient(180deg, #eef6fd 0%, #dcebf8 100%);
-  --hb-head: #4f6f93;
-}
-.hb-tile--utility {
-  --hb-bg: linear-gradient(180deg, #effaf7 0%, #d9f0ea 100%);
-  --hb-head: #178f89;
-}
-.hb-tile--transport.is-owned,
-.hb-tile--utility.is-owned {
-  --hb-bg: linear-gradient(
-    180deg,
-    color-mix(in srgb, var(--o) 14%, #f4f9fd) 0%,
-    color-mix(in srgb, var(--o) 28%, #dcebf8) 100%
-  );
-}
-
-.hb-tile--transport .hb-tile__body,
-.hb-tile--utility .hb-tile__body {
-  gap: 0.1cqw;
-  padding: 0.35cqw 0.3cqw 0.55cqw;
-}
-
-/* kismet / tax / film: no price, so a thin type bar + big icon */
-.hb-tile--plain .hb-tile__bar {
-  flex: 0 0 1cqw;
-  background: var(--hb-head);
-  box-shadow: inset 0 -0.2cqw 0 rgba(0, 0, 0, 0.15);
-}
-.hb-tile--plain .hb-tile__body {
-  gap: 0.1cqw;
-  padding: 0.5cqw 0.3cqw 0.55cqw;
-}
-.hb-tile--kismet { --hb-bg: linear-gradient(180deg, #f6f0ff 0%, #e6dafb 100%); --hb-head: #7c4dd8; }
-.hb-tile--tax { --hb-bg: linear-gradient(180deg, #fff1ee 0%, #fadad4 100%); --hb-head: #d1495b; }
-.hb-tile--film { --hb-bg: linear-gradient(180deg, #fff4e2 0%, #fbe0b8 100%); --hb-head: #d9822b; }
-
-/* corners */
-.hb-tile--corner {
-  align-items: center;
-  justify-content: space-between;
-  padding: 0.7cqw 0.5cqw 0.9cqw;
-  gap: 0.3cqw;
-}
-.hb-tile--corner .hb-tile__icon--corner {
-  flex: 1 1 0;
-  min-height: 0;
-}
-.hb-tile--start { --hb-bg: linear-gradient(180deg, #f0fbf4 0%, #cfeedb 100%); --hb-pill: #1e9b62; }
-.hb-tile--auction { --hb-bg: linear-gradient(180deg, #fff6e6 0%, #fbdfae 100%); --hb-pill: #c77a14; }
-.hb-tile--jail { --hb-bg: linear-gradient(180deg, #f0f4fa 0%, #d3dcea 100%); --hb-pill: #6c7f9a; }
-.hb-tile--kismet.hb-tile--corner { --hb-pill: #7c4dd8; }
-
-.hb-pill {
+.hb-pips {
+  --pip: calc(var(--hb-u) * 0.17);
   display: flex;
   align-items: center;
   justify-content: center;
-  box-sizing: border-box;
-  max-width: 100%;
-  height: 1.55em;
-  padding: 0.55em 0.45em 0;
-  border-radius: 99cqw;
-  background: var(--hb-pill, #6c7f9a);
+  gap: calc(var(--hb-u) * 0.035);
+  pointer-events: none;
+}
+.hb-side--left .hb-pips,
+.hb-side--right .hb-pips { flex-direction: column; }
+
+.hb-pips i {
+  position: relative;
+  display: block;
+  flex: none;
+  width: var(--pip);
+  height: var(--pip);
+  background: #fff;
+  clip-path: polygon(50% 0, 100% 42%, 100% 100%, 0 100%, 0 42%);
+}
+.hb-pips i::after {
+  content: '';
+  position: absolute;
+  inset: 16% 14% 10%;
+  background: #1c9a48;
+  clip-path: polygon(50% 0, 100% 42%, 100% 100%, 0 100%, 0 42%);
+}
+.hb-pips.is-hotel i {
+  width: calc(var(--pip) * 2.5);
+  height: var(--pip);
+  clip-path: none;
+  border-radius: calc(var(--pip) * 0.18);
+}
+.hb-pips.is-hotel i::after {
+  inset: 14%;
+  background: #d92b3a;
+  clip-path: none;
+  border-radius: calc(var(--pip) * 0.1);
+}
+.hb-side--left .hb-pips.is-hotel i,
+.hb-side--right .hb-pips.is-hotel i {
+  width: var(--pip);
+  height: calc(var(--pip) * 2.5);
+}
+
+/* owner marker: a bar in the owner's colour on the OUTER edge of the tile, as in the reference game */
+.hb-tile__own {
+  position: absolute;
+  background: var(--o);
+  box-shadow: inset 0 0 0 1px rgba(10, 28, 24, 0.4);
+  pointer-events: none;
+}
+.hb-side--bottom .hb-tile__own { left: 0; right: 0; bottom: 0; height: calc(var(--hb-u) * 0.11); }
+.hb-side--top .hb-tile__own { left: 0; right: 0; top: 0; height: calc(var(--hb-u) * 0.11); }
+.hb-side--left .hb-tile__own { top: 0; bottom: 0; left: 0; width: calc(var(--hb-u) * 0.11); }
+.hb-side--right .hb-tile__own { top: 0; bottom: 0; right: 0; width: calc(var(--hb-u) * 0.11); }
+
+/* ---- tile families ---------------------------------------------------------- */
+
+.hb-tile--transport { --paper: #e2edf4; }
+.hb-tile--utility { --paper: #eaf1dc; }
+.hb-tile--tax { --paper: #f6e5df; }
+.hb-tile--tax .hb-tile__price { color: #9a3a33; font-weight: 700; white-space: normal; text-wrap: balance; }
+
+/* Kismet: the back of a card. The tinted face sits inside the tile like a card laid on the table. */
+.hb-tile--kismet { padding: calc(var(--hb-u) * 0.06); }
+.hb-tile--kismet.hb-side--bottom { padding-bottom: calc(var(--hb-u) * 0.15); }
+.hb-tile--kismet.hb-side--top { padding-top: calc(var(--hb-u) * 0.15); }
+.hb-tile--kismet.hb-side--left { padding-left: calc(var(--hb-u) * 0.15); }
+.hb-tile--kismet.hb-side--right { padding-right: calc(var(--hb-u) * 0.15); }
+
+.hb-tile__card {
+  --card-a: #f4a23c;
+  --card-b: #d86d17;
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: calc(var(--hb-u) * 0.04);
+  padding: calc(var(--hb-u) * 0.05) calc(var(--hb-u) * 0.03);
+  border-radius: calc(var(--hb-u) * 0.12);
+  background:
+    repeating-linear-gradient(45deg, rgba(255, 255, 255, 0.13) 0 calc(var(--hb-u) * 0.045), transparent calc(var(--hb-u) * 0.045) calc(var(--hb-u) * 0.15)),
+    linear-gradient(150deg, var(--card-a), var(--card-b));
+  box-shadow:
+    inset 0 0 0 calc(var(--hb-u) * 0.03) rgba(255, 247, 230, 0.85),
+    0 calc(var(--hb-u) * 0.03) calc(var(--hb-u) * 0.08) rgba(10, 28, 24, 0.35);
+  overflow: hidden;
+}
+.hb-tile--chest .hb-tile__card {
+  --card-a: #38b2a8;
+  --card-b: #16756f;
+}
+.hb-tile--kismet .hb-tile__name {
+  font-size: max(calc(var(--hb-u) * 0.17), 5.4px);
   color: #fff;
-  font-size: max(2.15cqw, 7px);
+  font-weight: 700;
+  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.3);
+  letter-spacing: 0.01em;
+}
+
+/* ---- corners ---------------------------------------------------------------- */
+
+.hb-tile--corner {
+  flex-direction: column;
+  align-items: center;
+  justify-content: space-between;
+  gap: calc(var(--hb-u) * 0.04);
+  padding: calc(var(--hb-u) * 0.1) calc(var(--hb-u) * 0.06) calc(var(--hb-u) * 0.1);
+}
+.hb-tile--corner .hb-tile__icon--corner {
+  flex: 1 1 0;
+}
+.hb-tile--start { --paper: #d9f1e2; --hb-pill: #17995b; }
+.hb-tile--jail { --paper: #dfe7f0; --hb-pill: #5f7592; }
+.hb-tile--parking { --paper: #f8e8c9; --hb-pill: #c4761a; }
+.hb-tile--gotojail { --paper: #f6d9d6; --hb-pill: #c8333a; }
+
+.hb-pill {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  max-width: 100%;
+  padding: calc(var(--hb-u) * 0.05) calc(var(--hb-u) * 0.14);
+  border-radius: 99cqw;
+  background: var(--hb-pill, #5f7592);
+  color: #fff;
+  font-size: var(--hb-fs-pill);
   font-weight: 800;
-  line-height: 1;
+  line-height: 1.1;
   letter-spacing: 0.04em;
   text-transform: uppercase;
   white-space: nowrap;
-  box-shadow: inset 0 -0.25cqw 0 rgba(0, 0, 0, 0.18), 0 0.25cqw 0.5cqw rgba(27, 19, 64, 0.25);
+}
+.hb-tile__sub {
+  flex: none;
+  max-width: 100%;
+  font-size: var(--hb-fs-pill);
+  font-weight: 600;
+  line-height: 1.1;
+  white-space: nowrap;
+  color: var(--hb-ink-dim);
 }
 
-/* state: full colour set = owner-coloured ring + glow */
+/* ---- states ------------------------------------------------------------------- */
+
+/* the owner holds the whole colour = owner-coloured ring + glow */
 .hb-tile.is-set {
   z-index: 2;
   box-shadow:
-    inset 0 0 0 0.32cqw var(--o),
-    inset 0 0 1.8cqw color-mix(in srgb, var(--o) 45%, transparent),
-    0 0 1.4cqw color-mix(in srgb, var(--o) 60%, transparent);
+    inset 0 0 0 calc(var(--hb-u) * 0.07) var(--o),
+    inset 0 0 calc(var(--hb-u) * 0.4) color-mix(in srgb, var(--o) 55%, transparent),
+    0 0 calc(var(--hb-u) * 0.35) color-mix(in srgb, var(--o) 70%, transparent);
 }
 
-/* state: owner holds 2 of a 3-tile colour = a thinner dotted ring */
-.hb-tile.is-partial {
-  outline: 0.4cqw dotted var(--o);
-  outline-offset: -0.7cqw;
-}
-
-/* state: hotel = golden shimmer sweeping over the tile and a warm halo */
+/* hotel: a warm halo on top of the ring */
 .hb-tile.is-hotel {
-  z-index: 2;
   box-shadow:
-    inset 0 0 0 0.32cqw var(--o),
-    inset 0 0 1.8cqw rgba(255, 197, 49, 0.55),
-    0 0 1.8cqw rgba(255, 190, 50, 0.85);
-}
-.hb-tile.is-hotel::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  z-index: 1;
-  background: linear-gradient(115deg, transparent 40%, rgba(255, 226, 120, 0.42) 50%, transparent 60%) no-repeat;
-  background-size: 260% 100%;
-  animation: hb-shimmer 3.2s linear infinite;
-  border-radius: inherit;
-  pointer-events: none;
+    inset 0 0 0 calc(var(--hb-u) * 0.07) var(--o),
+    inset 0 0 calc(var(--hb-u) * 0.4) rgba(255, 197, 49, 0.6),
+    0 0 calc(var(--hb-u) * 0.4) rgba(255, 190, 50, 0.8);
 }
 
-/* state: mortgaged = desaturated, diagonal stripes, "M" badge, and no set glow */
-.hb-tile.is-owned.is-mortgaged {
-  --g: #8b919c;
-  --gi: #ffffff;
-  --hb-head: #8b919c;
-  --hb-bg: linear-gradient(180deg, #efece6 0%, #d8d4cb 100%);
-}
-.hb-tile.is-mortgaged .hb-tile__head { background: #8b919c; color: #fff; }
-.hb-tile.is-mortgaged .hb-tile__name { color: #5b6070; }
+/* mortgaged: desaturated band, diagonal stripes and an "M" badge, no set glow */
+.hb-tile.is-mortgaged { --paper: #dcdfdb; }
+.hb-tile.is-mortgaged .hb-tile__band { background: #9aa39f; }
+.hb-tile.is-mortgaged .hb-tile__name,
+.hb-tile.is-mortgaged .hb-tile__price { color: #5b6662; }
 .hb-tile.is-mortgaged .hb-tile__icon { filter: grayscale(1); opacity: 0.7; }
 .hb-tile.is-mortgaged::before {
   content: '';
   position: absolute;
   inset: 0;
   z-index: 1;
-  background: repeating-linear-gradient(135deg, transparent 0 0.85cqw, rgba(27, 19, 64, 0.17) 0.85cqw 1.25cqw);
+  background: repeating-linear-gradient(135deg, transparent 0 calc(var(--hb-u) * 0.12), rgba(23, 48, 44, 0.16) calc(var(--hb-u) * 0.12) calc(var(--hb-u) * 0.2));
   pointer-events: none;
 }
 .hb-tile__m {
   position: absolute;
-  left: -0.2cqw;
-  top: -0.2cqw;
+  left: calc(var(--hb-u) * 0.05);
+  top: calc(var(--hb-u) * 0.05);
   z-index: 3;
   display: grid;
   place-items: center;
-  width: 3.1cqw;
-  height: 3.1cqw;
+  width: max(calc(var(--hb-u) * 0.3), 9px);
+  height: max(calc(var(--hb-u) * 0.3), 9px);
   border-radius: 50%;
   background: #3a3f4d;
   color: #fff;
-  font-size: 2cqw;
+  font-size: max(calc(var(--hb-u) * 0.2), 6px);
   font-weight: 800;
   line-height: 1;
-  box-shadow: 0 0 0 0.22cqw #fff, 0 0.3cqw 0.5cqw rgba(0, 0, 0, 0.35);
+  box-shadow: 0 0 0 1px #fff;
   pointer-events: none;
 }
+.hb-tile__band .hb-tile__m { position: relative; left: auto; top: auto; flex: none; }
 
-/* state: highlighted by the parent (e.g. a sheet is open for it) */
+/* highlighted by the parent (e.g. a sheet is open for it) */
 .hb-tile.is-hl {
   z-index: 5;
   box-shadow:
-    inset 0 0 0 0.55cqw var(--hb-gold),
-    0 0 2.6cqw rgba(255, 200, 87, 0.95);
+    inset 0 0 0 calc(var(--hb-u) * 0.12) var(--hb-gold),
+    0 0 calc(var(--hb-u) * 0.5) rgba(255, 202, 122, 0.95);
   animation: hb-hl 1.4s ease-in-out infinite;
 }
 
-/* state: the mover is standing here */
+/* snatch window: the contested tile pulses (a steady ring with a breathing glow) and carries a lightning badge;
+   its buyer's owner bar is drawn by the board like on any owned tile */
+.hb-tile.is-snatch {
+  z-index: 5;
+  box-shadow:
+    inset 0 0 0 calc(var(--hb-u) * 0.06) #fff,
+    inset 0 0 0 calc(var(--hb-u) * 0.15) var(--hb-snatch),
+    0 0 calc(var(--hb-u) * 0.45) var(--hb-snatch);
+  animation: hb-snatch 0.75s ease-in-out infinite;
+}
+.hb-tile__snatch {
+  position: absolute;
+  right: calc(var(--hb-u) * -0.1); /* straddles the corner so it never covers the name */
+  top: calc(var(--hb-u) * -0.1);
+  z-index: 4;
+  display: grid;
+  place-items: center;
+  width: max(calc(var(--hb-u) * 0.36), 11px);
+  height: max(calc(var(--hb-u) * 0.36), 11px);
+  border-radius: 50%;
+  background: var(--hb-snatch);
+  box-shadow: 0 0 0 1px #fff, 0 1px 3px rgba(0, 0, 0, 0.45);
+  pointer-events: none;
+  animation: hb-snatch-pop 0.75s ease-in-out infinite;
+}
+.hb-tile__snatch svg {
+  width: 68%;
+  height: 68%;
+  fill: #ffe14d;
+}
+
+/* city event: an inner outline in the event's colour (outline, so it never fights the set / snatch / hotel
+   box-shadows) and a small badge showing the effect. monsoon = rain teal, ipl = gold, metro strike = muted
+   stripes + "closed", tax holiday = green "free". */
+.hb-tile.is-event {
+  --ev: #1fa6c9;
+  --ev-ink: #fff;
+  outline: calc(var(--hb-u) * 0.09) solid var(--ev);
+  outline-offset: calc(var(--hb-u) * -0.09);
+}
+.hb-tile.is-event:not(.is-snatch):not(.is-hl) { animation: hb-event 1.8s ease-in-out infinite; }
+.hb-tile.is-ev--rain { --ev: #1fa6c9; }
+.hb-tile.is-ev--star { --ev: #f2b01e; --ev-ink: #3a2a00; }
+.hb-tile.is-ev--closed { --ev: #6b7280; }
+.hb-tile.is-ev--free { --ev: #1f9d55; }
+.hb-tile.is-ev--closed .hb-tile__icon { filter: grayscale(1); opacity: 0.6; }
+.hb-tile__evx {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  background: repeating-linear-gradient(45deg, rgba(90, 98, 110, 0.34) 0 calc(var(--hb-u) * 0.1), rgba(255, 255, 255, 0.18) calc(var(--hb-u) * 0.1) calc(var(--hb-u) * 0.2));
+  pointer-events: none;
+}
+.hb-tile__ev {
+  position: absolute;
+  right: calc(var(--hb-u) * -0.06);
+  bottom: calc(var(--hb-u) * -0.06);
+  z-index: 4;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.15em;
+  padding: calc(var(--hb-u) * 0.03) calc(var(--hb-u) * 0.1);
+  border-radius: 99cqw;
+  background: var(--ev);
+  color: var(--ev-ink);
+  font-size: max(calc(var(--hb-u) * 0.19), 5.5px);
+  line-height: 1.1;
+  white-space: nowrap;
+  box-shadow: 0 0 0 1px #fff, 0 1px 3px rgba(0, 0, 0, 0.4);
+  pointer-events: none;
+}
+.hb-tile__ev b { font-weight: 800; }
+.hb-tile__ev svg {
+  width: 1.1em;
+  height: 1.1em;
+  fill: currentColor;
+}
+/* the viewer's own hidden trap: amber warning triangle in the bottom-left corner */
+.hb-tile__trap {
+  position: absolute;
+  left: calc(var(--hb-u) * -0.06);
+  bottom: calc(var(--hb-u) * -0.06);
+  z-index: 4;
+  display: grid;
+  place-items: center;
+  width: max(calc(var(--hb-u) * 0.38), 11px);
+  height: max(calc(var(--hb-u) * 0.38), 11px);
+  border-radius: 50%;
+  background: #f59e0b;
+  box-shadow: 0 0 0 1px #fff, 0 1px 3px rgba(0, 0, 0, 0.4);
+  pointer-events: none;
+}
+.hb-tile__trap svg { width: 78%; height: 78%; fill: #3a2300; }
+
+/* trap action in the deed sheet (the sheet lives outside the board, these are plain global classes) */
+.hg-trapbox { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 8px; }
+.hg-trapbox .hg-hint { flex: 1 0 100%; margin: 0; }
+.hg-trapbox .hg-trap-btn { flex: 1 1 210px; background: linear-gradient(#ffb62e, #f08a00); color: #3a2300; }
+.hg-trapnote.is-set {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 8px 0 0;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: #fde7b0;
+  color: #6b4300;
+  font-weight: 700;
+}
+
+@keyframes hb-event {
+  0%, 100% { outline-color: var(--ev); }
+  50% { outline-color: color-mix(in srgb, var(--ev) 45%, #fff); }
+}
+
+/* the mover is standing here */
 .hb-tile.is-active::after {
   content: '';
   position: absolute;
   inset: 0;
   z-index: 1;
-  border: 0.5cqw solid rgba(255, 255, 255, 0.95);
-  box-shadow: inset 0 0 1.6cqw rgba(255, 200, 87, 0.95), 0 0 1.6cqw rgba(255, 200, 87, 0.9);
+  border: calc(var(--hb-u) * 0.09) solid rgba(255, 255, 255, 0.95);
+  box-shadow: inset 0 0 calc(var(--hb-u) * 0.35) rgba(255, 202, 122, 0.95), 0 0 calc(var(--hb-u) * 0.35) rgba(255, 202, 122, 0.9);
   border-radius: inherit;
   pointer-events: none;
   animation: hb-active 1.1s ease-in-out infinite;
@@ -494,12 +651,43 @@
   0%, 100% { filter: brightness(1); }
   50% { filter: brightness(1.12); }
 }
+@keyframes hb-snatch {
+  0%, 100% { box-shadow: inset 0 0 0 calc(var(--hb-u) * 0.06) #fff, inset 0 0 0 calc(var(--hb-u) * 0.15) var(--hb-snatch), 0 0 calc(var(--hb-u) * 0.25) var(--hb-snatch); }
+  50% { box-shadow: inset 0 0 0 calc(var(--hb-u) * 0.06) #fff, inset 0 0 0 calc(var(--hb-u) * 0.15) var(--hb-snatch), 0 0 calc(var(--hb-u) * 0.8) calc(var(--hb-u) * 0.12) var(--hb-snatch); }
+}
+@keyframes hb-snatch-pop {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.18); }
+}
 @keyframes hb-active {
   0%, 100% { opacity: 0.35; }
   50% { opacity: 1; }
 }
 
-/* ---- pawns -------------------------------------------------------------- */
+/* small boards: drop the second line of text that no longer fits */
+@container (max-width: 460px) {
+  .hb-tile__sub,
+  .hb-tile__or { display: none; }
+}
+
+/* phone boards (11 tiles across ~33px each): names cannot be read at 5px, so buyable tiles keep their colour
+   band / icon and show a bigger price; the name comes from tapping the tile (its deed) and from the tooltip */
+@container (max-width: 480px) {
+  /* event badge shrinks to a coloured dot */
+  .hb-tile__ev { padding: 0; width: max(calc(var(--hb-u) * 0.28), 8px); height: max(calc(var(--hb-u) * 0.28), 8px); border-radius: 50%; }
+  .hb-tile__ev svg,
+  .hb-tile__ev-t { display: none; }
+  /* trap badge: keep the warning triangle, just smaller (it is the owner's only cue on a phone) */
+  .hb-tile__trap { width: max(calc(var(--hb-u) * 0.4), 13px); height: max(calc(var(--hb-u) * 0.4), 13px); }
+  .hb-tile--property .hb-tile__name,
+  .hb-tile--transport .hb-tile__name,
+  .hb-tile--utility .hb-tile__name { display: none; }
+  .hb-tile--property .hb-tile__price,
+  .hb-tile--transport .hb-tile__price,
+  .hb-tile--utility .hb-tile__price { font-size: max(calc(var(--hb-u) * 0.26), 8px); font-weight: 700; color: var(--hb-ink); }
+}
+
+/* ---- pawns -------------------------------------------------------------------- */
 
 .hb-pawns {
   position: absolute;
@@ -514,7 +702,7 @@
   top: var(--y);
   width: 0;
   height: 0;
-  --d: calc(var(--pd, 0.5) * 12.2cqw);
+  --d: calc(var(--pd, 0.5) * var(--hb-u));
   /*
    * One tile = one "lift, carry, set down" taking --hb-step (set from the presenter). The pawn is
    * picked up for the first ~22% of that time, slides across in the middle ~56% while it is held up
@@ -556,7 +744,7 @@
   animation: hb-lift var(--step) cubic-bezier(0.3, 0.6, 0.4, 1) both;
 }
 .hb-pawn__shadow.is-step {
-  animation: hb-shadow var(--step) ease-in-out both;
+  animation: hb-pawn-shadow var(--step) ease-in-out both;
 }
 
 .hb-pawn__disc {
@@ -592,10 +780,10 @@
 .hb-pawn__marker {
   position: absolute;
   left: 50%;
-  bottom: calc(100% + 0.6cqw);
-  width: 2.8cqw;
-  height: 2.2cqw;
-  margin-left: -1.4cqw;
+  bottom: calc(100% + var(--hb-u) * 0.08);
+  width: calc(var(--hb-u) * 0.3);
+  height: calc(var(--hb-u) * 0.24);
+  margin-left: calc(var(--hb-u) * -0.15);
   background: var(--c);
   clip-path: polygon(0 0, 100% 0, 50% 100%);
   filter: drop-shadow(0 0 0.25cqw #fff) drop-shadow(0 0.3cqw 0.3cqw rgba(0, 0, 0, 0.55));
@@ -613,7 +801,7 @@
   100% { transform: translateY(0) scale(1, 1); }
 }
 /* The shadow stays on the board: it fades and shrinks while the pawn is held up, snaps back when placed. */
-@keyframes hb-shadow {
+@keyframes hb-pawn-shadow {
   0%   { transform: scale(1, 1); opacity: 1; }
   24%  { transform: scale(0.62, 0.7); opacity: 0.35; }
   76%  { transform: scale(0.62, 0.7); opacity: 0.35; }
@@ -625,632 +813,13 @@
   to { transform: translateY(-0.9cqw); }
 }
 
-/* ---- centre stage ------------------------------------------------------- */
-
-.hb-stage {
-  grid-column: 2 / span 6;
-  grid-row: 2 / span 6;
-  display: flex;
-  min-width: 0;
-  min-height: 0;
-  padding: 1.1cqw;
-}
-
-.hb-stage__panel {
-  container-type: inline-size;
-  position: relative;
-  flex: 1 1 auto;
-  min-width: 0;
-  min-height: 0;
-  border-radius: 2.6cqw;
-  overflow: hidden;
-  background:
-    radial-gradient(120% 90% at 50% 38%, #d9e6ee 0%, #c6d6e1 55%, #b7c9d6 100%);
-  box-shadow:
-    inset 0 0.5cqw 1.6cqw rgba(38, 62, 92, 0.3),
-    inset 0 0 0 0.25cqw rgba(255, 255, 255, 0.55),
-    0 0 0 0.3cqw rgba(27, 19, 64, 0.1);
-}
-
-/* in here 1cqw = 1% of the panel width (the panel is square) */
-.hb-stage__inner {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  flex-direction: column;
-  align-items: stretch;
-  padding: 3.6cqw 4cqw 3cqw;
-  gap: 1.4cqw;
-}
-
-.hb-stage__top {
-  flex: 0 0 auto;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 2cqw;
-  min-width: 0;
-  height: 6.4cqw;
-}
-
-.hb-turn {
-  display: flex;
-  align-items: center;
-  gap: 1.4cqw;
-  min-width: 0;
-  padding: 0.7cqw 1.6cqw 0.7cqw 1.4cqw;
-  border-radius: 99cqw;
-  background: rgba(255, 255, 255, 0.72);
-  box-shadow: 0 0.3cqw 0.8cqw rgba(38, 62, 92, 0.18), inset 0 0 0 0.2cqw rgba(255, 255, 255, 0.9);
-}
-
-.hb-turn__dot {
-  flex: none;
-  width: 3cqw;
-  height: 3cqw;
-  border-radius: 50%;
-  background: var(--c, #ffd23f);
-  box-shadow: 0 0 0 0.3cqw #fff, 0 0.2cqw 0.5cqw rgba(0, 0, 0, 0.35);
-}
-
-.hb-turn__name {
-  min-width: 0;
-  max-width: 34cqw;
-  /* ellipsis needs overflow:hidden, which clips Baloo's tall glyphs: pad inside, cancel outside */
-  padding: 0.3em 0 0.34em;
-  margin: -0.3em 0 -0.34em;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 3.9cqw;
-  font-weight: 700;
-  line-height: 1.15;
-  color: var(--hb-ink);
-}
-
-.hb-turn__chip {
-  flex: none;
-  display: flex;
-  align-items: center;
-  height: 4.4cqw;
-  padding: 0.35cqw 1.6cqw 0;
-  border-radius: 99cqw;
-  background: #3b82f6;
-  color: #fff;
-  font-size: 2.9cqw;
-  font-weight: 800;
-  letter-spacing: 0.06em;
-  line-height: 1;
-  text-transform: uppercase;
-}
-
-.hb-round {
-  flex: none;
-  padding: 0.9cqw 2cqw 0.7cqw;
-  border-radius: 99cqw;
-  background: rgba(255, 255, 255, 0.42);
-  font-size: 3.4cqw;
-  font-weight: 700;
-  line-height: 1.1;
-  color: #3e5873;
-  white-space: nowrap;
-  box-shadow: inset 0 0 0 0.2cqw rgba(255, 255, 255, 0.7);
-}
-
-/* last round: warm accent colour */
-.hb-round.is-final {
-  background: linear-gradient(180deg, #ff9d4a, #ee6a1f);
-  color: #fff;
-  font-weight: 800;
-  letter-spacing: 0.03em;
-  text-shadow: 0 0.2cqw 0 rgba(120, 40, 0, 0.35);
-  box-shadow: inset 0 -0.4cqw 0 rgba(120, 40, 0, 0.3), 0 0 2cqw rgba(238, 106, 31, 0.55);
-  animation: hb-final 1.6s ease-in-out infinite;
-}
-@keyframes hb-final {
-  0%, 100% { filter: brightness(1); }
-  50% { filter: brightness(1.14); }
-}
-
-/* speech bubble */
-.hb-bubble-slot {
-  position: relative;
-  flex: 0 0 auto;
-  min-height: 15.5cqw;
-  display: flex;
-  align-items: flex-start;
-  justify-content: center;
-}
-
-.hb-bubble {
-  --tone: #3b82f6;
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  margin: 0 auto;
-  width: 100%;
-  max-width: 100%;
-  min-height: 11.6cqw;
-  padding: 1.6cqw 3cqw 1.8cqw;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 3.2cqw;
-  background: #fff;
-  box-shadow:
-    0 0.9cqw 1.6cqw rgba(38, 62, 92, 0.22),
-    inset 0 -0.7cqw 0 var(--tone),
-    inset 0 0 0 0.2cqw rgba(27, 19, 64, 0.06);
-  text-align: center;
-  transform-origin: 50% 110%;
-  animation: hb-pop 0.34s cubic-bezier(0.2, 1.1, 0.35, 1) both;
-}
-.hb-bubble::after {
-  content: '';
-  position: absolute;
-  left: 50%;
-  bottom: -2.1cqw;
-  width: 4cqw;
-  height: 2.5cqw;
-  margin-left: -2cqw;
-  background: #fff;
-  clip-path: polygon(0 0, 100% 0, 50% 100%);
-  filter: drop-shadow(0 0.4cqw 0.3cqw rgba(38, 62, 92, 0.2));
-}
-.hb-bubble.is-out {
-  animation: hb-pop-out 0.24s ease-in both;
-  pointer-events: none;
-}
-
-.hb-bubble--info { --tone: #3b82f6; }
-.hb-bubble--good { --tone: #22a06b; }
-.hb-bubble--bad { --tone: #e5484d; }
-.hb-bubble--warn { --tone: #f08a24; }
-.hb-bubble--cheer { --tone: #e8a800; }
-
-.hb-bubble__text {
-  padding: 0.24em 0 0.28em;
-  margin: -0.24em 0 -0.28em;
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 3;
-  overflow: hidden;
-  font-size: 4.35cqw;
-  font-weight: 600;
-  line-height: 1.18;
-  color: var(--hb-ink);
-  text-wrap: balance;
-  overflow-wrap: anywhere;
-}
-.hb-bubble__you {
-  font-weight: 700;
-  color: color-mix(in srgb, var(--tone) 70%, #7a5a00);
-}
-.hb-bubble--info .hb-bubble__you { color: #2563eb; }
-.hb-bubble--cheer .hb-bubble__you { color: #c58a00; }
-
-@keyframes hb-pop {
-  0% { opacity: 0; transform: translateY(2cqw) scale(0.82); }
-  60% { opacity: 1; transform: translateY(-0.4cqw) scale(1.04); }
-  100% { opacity: 1; transform: none; }
-}
-@keyframes hb-pop-out {
-  from { opacity: 1; transform: none; }
-  to { opacity: 0; transform: translateY(-1.6cqw) scale(0.92); }
-}
-
-/* art */
-.hb-art {
-  position: relative;
-  flex: 1 1 0;
-  min-height: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  margin-top: 2.2cqw;
-}
-
-.hb-art__fit {
-  position: relative;
-  height: 100%;
-  max-width: 100%;
-  aspect-ratio: 1;
-  animation: hb-art-in 0.45s cubic-bezier(0.2, 1.1, 0.35, 1) both;
-}
-
-.hb-art__box {
-  position: absolute;
-  inset: 0;
-  animation: hb-float 4.5s ease-in-out infinite;
-}
-.hb-art__box > *,
-.hb-art__box svg {
-  display: block;
-  width: 100% !important;
-  height: 100% !important;
-}
-
-.hb-art__caption {
-  position: absolute;
-  left: 50%;
-  bottom: 0;
-  max-width: 100%;
-  padding: 0.7cqw 2.2cqw 0.5cqw;
-  border-radius: 99cqw;
-  background: rgba(27, 19, 64, 0.62);
-  color: #fff;
-  font-size: 3.3cqw;
-  font-weight: 700;
-  line-height: 1.1;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  transform: translateX(-50%);
-  backdrop-filter: blur(2px);
-}
-
-@keyframes hb-art-in {
-  from { opacity: 0; transform: scale(0.82) translateY(2cqw); }
-  to { opacity: 1; transform: none; }
-}
-@keyframes hb-float {
-  0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(-1.1cqw); }
-}
-
-/* dice zone: fixed height so there is no layout shift between idle / ready / rolling.
-   Left slot: Odds toggle. Middle: the dice. Right slot: lucky-dice badge. */
-.hb-stage__dice {
-  flex: 0 0 auto;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 1cqw;
-  height: 23cqw;
-  margin-top: 0.4cqw;
-}
-.hb-stage__side {
-  flex: 1 1 0;
-  min-width: 0;
-  display: flex;
-  align-items: center;
-}
-.hb-stage__side--l { justify-content: flex-start; }
-.hb-stage__side--r { justify-content: flex-end; }
-
-/* ---- dice --------------------------------------------------------------- */
-
-.hb-dice {
-  --die: 11.4cqw;
-  appearance: none;
-  position: relative;
-  display: inline-flex;
-  flex: none;
-  flex-direction: column;
-  align-items: center;
-  gap: 2.4cqw;
-  margin: 0;
-  padding: 1cqw 3cqw 1.1cqw;
-  border: 0;
-  border-radius: 5cqw;
-  background: transparent;
-  font: inherit;
-  color: inherit;
-  cursor: default;
-  -webkit-tap-highlight-color: transparent;
-  touch-action: manipulation;
-}
-
-.hb-dice__row {
-  display: flex;
-  align-items: center;
-  gap: 5cqw;
-  padding-top: 0.8cqw;
-}
-
-/* flat face (exported DiceFace) */
-.hb-die {
-  --rot: -6deg;
-  position: relative;
-  flex: none;
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  grid-template-rows: repeat(3, 1fr);
-  width: var(--die, 10.8cqw);
-  height: var(--die, 10.8cqw);
-  padding: calc(var(--die, 10.8cqw) * 0.15);
-  border-radius: calc(var(--die, 10.8cqw) * 0.23);
-  background: linear-gradient(150deg, #ffffff 0%, #f4f7fc 50%, #dde5f1 100%);
-  box-shadow:
-    inset 0 calc(var(--die, 10.8cqw) * 0.04) 0 #fff,
-    inset 0 calc(var(--die, 10.8cqw) * -0.07) 0 rgba(120, 140, 175, 0.4),
-    0 calc(var(--die, 10.8cqw) * 0.09) 0 #b3bfd3,
-    0 calc(var(--die, 10.8cqw) * 0.2) calc(var(--die, 10.8cqw) * 0.26) rgba(30, 40, 75, 0.38);
-  transform: rotate(var(--rot));
-}
-.hb-die--b { --rot: 7deg; }
-
-.hb-pip {
-  display: block;
-  place-self: center;
-  width: 80%;
-  height: 80%;
-  border-radius: 50%;
-  background: radial-gradient(circle at 34% 28%, #ffe58a 0%, #f7b500 55%, #d98a00 100%);
-  box-shadow: inset 0 0 0 1px rgba(150, 95, 0, 0.3), 0 1px 0 rgba(255, 255, 255, 0.8);
-}
-
-/* 3D dice: shadow on the ground, an "air" layer that tosses/bounces, and the preserve-3d cube */
-.hb-die3d {
-  position: relative;
-  flex: none;
-  width: var(--die);
-  height: var(--die);
-}
-.hb-die3d__shadow {
-  position: absolute;
-  left: 4%;
-  right: 4%;
-  bottom: -26%;
-  height: 28%;
-  border-radius: 50%;
-  background: radial-gradient(ellipse at center, rgba(14, 24, 56, 0.7) 0%, rgba(14, 24, 56, 0.3) 55%, transparent 76%);
-  filter: blur(calc(var(--die) * 0.035));
-}
-.hb-die3d__air {
-  position: absolute;
-  inset: 0;
-  perspective: calc(var(--die) * 5.5);
-}
-.hb-cube {
-  position: relative;
-  display: block;
-  width: 100%;
-  height: 100%;
-  transform-style: preserve-3d;
-  will-change: transform;
-}
-.hb-face {
-  position: absolute;
-  inset: 0;
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  grid-template-rows: repeat(3, 1fr);
-  padding: calc(var(--die) * 0.13);
-  border-radius: calc(var(--die) * 0.15);
-  box-sizing: border-box;
-  border: calc(var(--die) * 0.025) solid rgba(104, 120, 160, 0.55);
-  background: linear-gradient(145deg, #ffffff 0%, #f0f4fa 50%, #cbd5e7 100%);
-  box-shadow:
-    inset 0 0 calc(var(--die) * 0.16) rgba(92, 112, 158, 0.6),
-    inset 0 0 0 calc(var(--die) * 0.015) rgba(255, 255, 255, 0.95);
-  backface-visibility: hidden;
-}
-.hb-face--1 { transform: translateZ(calc(var(--die) / 2)); }
-.hb-face--6 { transform: rotateY(180deg) translateZ(calc(var(--die) / 2)); }
-.hb-face--2 { transform: rotateX(90deg) translateZ(calc(var(--die) / 2)); }
-.hb-face--5 { transform: rotateX(-90deg) translateZ(calc(var(--die) / 2)); }
-.hb-face--3 { transform: rotateY(90deg) translateZ(calc(var(--die) / 2)); }
-.hb-face--4 { transform: rotateY(-90deg) translateZ(calc(var(--die) / 2)); }
-
-/* free tumble while rolling; starts from the die's current pose (--from is set by Dice.jsx) */
-.hb-cube.is-tumbling { animation: hb-spin-a 0.78s linear infinite; }
-.hb-die3d--b .hb-cube.is-tumbling { animation-name: hb-spin-b; animation-duration: 0.7s; }
-
-.hb-die3d.is-tossing .hb-die3d__air { animation: hb-toss-a 0.78s ease-in-out infinite; }
-.hb-die3d--b.is-tossing .hb-die3d__air { animation-name: hb-toss-b; animation-duration: 0.7s; }
-.hb-die3d.is-tossing .hb-die3d__shadow { animation: hb-shadow 0.78s ease-in-out infinite; }
-
-/* landing: a short bounce with the shadow squashing under it */
-.hb-die3d.is-landing .hb-die3d__air { animation: hb-land 0.62s cubic-bezier(0.3, 0, 0.4, 1) both; }
-.hb-die3d.is-landing .hb-die3d__shadow { animation: hb-land-shadow 0.62s ease-out both; }
-
-@keyframes hb-spin-a {
-  0% { transform: var(--from) rotate3d(1, 0.7, 0.3, 0deg); }
-  25% { transform: var(--from) rotate3d(1, 0.7, 0.3, 180deg); }
-  50% { transform: var(--from) rotate3d(1, 0.7, 0.3, 360deg); }
-  75% { transform: var(--from) rotate3d(1, 0.7, 0.3, 540deg); }
-  100% { transform: var(--from) rotate3d(1, 0.7, 0.3, 720deg); }
-}
-@keyframes hb-spin-b {
-  0% { transform: var(--from) rotate3d(0.4, 1, 0.6, 0deg); }
-  25% { transform: var(--from) rotate3d(0.4, 1, 0.6, -180deg); }
-  50% { transform: var(--from) rotate3d(0.4, 1, 0.6, -360deg); }
-  75% { transform: var(--from) rotate3d(0.4, 1, 0.6, -540deg); }
-  100% { transform: var(--from) rotate3d(0.4, 1, 0.6, -720deg); }
-}
-@keyframes hb-toss-a {
-  0%, 100% { transform: translate(0, 0); }
-  22% { transform: translate(-1cqw, -3cqw); }
-  48% { transform: translate(0.6cqw, -0.2cqw); }
-  74% { transform: translate(-0.4cqw, -1.6cqw); }
-}
-@keyframes hb-toss-b {
-  0%, 100% { transform: translate(0, 0); }
-  28% { transform: translate(1cqw, -2.4cqw); }
-  52% { transform: translate(-0.6cqw, -0.2cqw); }
-  78% { transform: translate(0.4cqw, -2cqw); }
-}
-@keyframes hb-shadow {
-  0%, 100% { transform: scale(1); opacity: 1; }
-  22%, 74% { transform: scale(0.7); opacity: 0.55; }
-  48% { transform: scale(1.05); opacity: 1; }
-}
-@keyframes hb-land {
-  0% { transform: translateY(-2.6cqw); }
-  36% { transform: translateY(0); }
-  54% { transform: translateY(-1.2cqw); }
-  72% { transform: translateY(0); }
-  86% { transform: translateY(-0.4cqw); }
-  100% { transform: translateY(0); }
-}
-@keyframes hb-land-shadow {
-  0% { transform: scale(0.7); opacity: 0.5; }
-  36% { transform: scale(1.12); opacity: 1; }
-  54% { transform: scale(0.84); opacity: 0.7; }
-  72% { transform: scale(1.04); opacity: 1; }
-  100% { transform: scale(1); opacity: 1; }
-}
-
-.hb-dice__hint {
-  min-height: 4.6cqw;
-  padding: 0.7cqw 2.4cqw 0.55cqw;
-  border-radius: 99cqw;
-  font-size: 3.5cqw;
-  font-weight: 700;
-  line-height: 1.1;
-  letter-spacing: 0.02em;
-  color: #4a6481;
-  white-space: nowrap;
-}
-
-/* ready: a big, pulsing "Tap to roll" target */
-.hb-dice.is-ready {
-  cursor: pointer;
-  background: linear-gradient(180deg, rgba(255, 224, 130, 0.65) 0%, rgba(255, 190, 40, 0.35) 100%);
-  box-shadow: 0 0 0 0.5cqw rgba(255, 200, 87, 0.95), 0 0 5cqw rgba(255, 177, 0, 0.7), inset 0 0.5cqw 0 rgba(255, 255, 255, 0.5);
-  animation: hb-ready 1.25s ease-in-out infinite;
-}
-.hb-dice.is-ready .hb-die3d__air {
-  animation: hb-wiggle 1.25s ease-in-out infinite;
-}
-.hb-dice.is-ready .hb-die3d--b .hb-die3d__air {
-  animation-delay: 0.12s;
-}
-.hb-dice__hint.is-cta {
-  background: linear-gradient(180deg, #ffd45a, #ffab00);
-  color: #2a1d00;
-  font-weight: 800;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  box-shadow: inset 0 -0.5cqw 0 rgba(150, 90, 0, 0.35), 0 0.6cqw 1.2cqw rgba(120, 70, 0, 0.35);
-}
-.hb-dice.is-ready:hover { filter: brightness(1.05); }
-.hb-dice.is-ready:active { transform: scale(0.96); }
-.hb-dice:focus-visible {
-  outline: 0.8cqw solid #fff;
-  outline-offset: 0.6cqw;
-}
-
-@keyframes hb-ready {
-  0%, 100% { transform: scale(1); box-shadow: 0 0 0 0.5cqw rgba(255, 200, 87, 0.95), 0 0 4cqw rgba(255, 177, 0, 0.55), inset 0 0.5cqw 0 rgba(255, 255, 255, 0.5); }
-  50% { transform: scale(1.06); box-shadow: 0 0 0 0.9cqw rgba(255, 200, 87, 0.7), 0 0 7cqw rgba(255, 177, 0, 0.9), inset 0 0.5cqw 0 rgba(255, 255, 255, 0.5); }
-}
-@keyframes hb-wiggle {
-  0%, 70%, 100% { transform: translateY(0) rotate(0deg); }
-  78% { transform: translateY(-0.9cqw) rotate(-7deg); }
-  88% { transform: translateY(-0.4cqw) rotate(6deg); }
-}
-
-/* lucky-dice badge + the "helped" pop */
-.hb-lucky {
-  display: inline-block;
-  max-width: 100%;
-  padding: 0.9cqw 1.8cqw 0.7cqw;
-  border-radius: 2.4cqw;
-  background: linear-gradient(180deg, #ecfadc, #c3eaa5);
-  color: #2b5a12;
-  font-size: 2.9cqw;
-  font-weight: 800;
-  line-height: 1.1;
-  text-align: center;
-  box-shadow: inset 0 0 0 0.25cqw rgba(255, 255, 255, 0.85), 0 0.4cqw 0.9cqw rgba(38, 62, 92, 0.2);
-}
-.hb-assist {
-  position: absolute;
-  left: 50%;
-  top: -12.5cqw;
-  z-index: 3;
-  padding: 0.9cqw 2.4cqw 0.7cqw;
-  border-radius: 99cqw;
-  background: #fff;
-  color: #2b5a12;
-  font-size: 3.2cqw;
-  font-weight: 800;
-  line-height: 1.1;
-  white-space: nowrap;
-  box-shadow: 0 0 0 0.3cqw #8fd45f, 0 0.8cqw 1.6cqw rgba(38, 62, 92, 0.3);
-  pointer-events: none;
-  animation: hb-assist-pop 2.8s ease both;
-}
-@keyframes hb-assist-pop {
-  0% { opacity: 0; transform: translate(-50%, 2cqw) scale(0.7); }
-  9% { opacity: 1; transform: translate(-50%, 0) scale(1.1); }
-  15% { transform: translate(-50%, 0) scale(1); }
-  82% { opacity: 1; transform: translate(-50%, -1cqw) scale(1); }
-  100% { opacity: 0; transform: translate(-50%, -2.6cqw) scale(0.96); }
-}
-
 /* ---- landing odds ----------------------------------------------------------- */
 
-.hb-odds-btn {
-  appearance: none;
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 0.9cqw;
-  width: 14cqw;
-  height: 13cqw;
-  margin: 0;
-  padding: 0.6cqw 0 0;
-  border: 0;
-  border-radius: 3.2cqw;
-  background: rgba(255, 255, 255, 0.58);
-  color: #3e5873;
-  font: inherit;
-  cursor: pointer;
-  box-shadow: inset 0 0 0 0.3cqw rgba(255, 255, 255, 0.85), 0 0.5cqw 1cqw rgba(38, 62, 92, 0.2);
-  touch-action: manipulation;
-  -webkit-tap-highlight-color: transparent;
-}
-.hb-odds-btn::before {
-  content: '';
-  position: absolute;
-  inset: -2.6cqw; /* >= 44px tap target around the visible button */
-}
-.hb-odds-btn__ico {
-  display: flex;
-  align-items: flex-end;
-  gap: 0.6cqw;
-  height: 4.8cqw;
-}
-.hb-odds-btn__ico i {
-  display: block;
-  width: 1.7cqw;
-  border-radius: 0.5cqw 0.5cqw 0.1cqw 0.1cqw;
-  background: currentColor;
-}
-.hb-odds-btn__ico i:nth-child(1) { height: 42%; }
-.hb-odds-btn__ico i:nth-child(2) { height: 100%; }
-.hb-odds-btn__ico i:nth-child(3) { height: 66%; }
-.hb-odds-btn__txt {
-  font-size: 3.1cqw;
-  font-weight: 800;
-  line-height: 1;
-  letter-spacing: 0.03em;
-}
-.hb-odds-btn.is-on {
-  background: linear-gradient(135deg, hsl(215 88% 46%) 0%, hsl(108 80% 42%) 50%, hsl(0 88% 48%) 100%);
-  color: #fff;
-  box-shadow: inset 0 0 0 0.3cqw rgba(255, 255, 255, 0.7), 0 0.5cqw 1.2cqw rgba(38, 62, 92, 0.35);
-}
-.hb-odds-btn:focus-visible {
-  outline: 0.7cqw solid #fff;
-  outline-offset: 0.4cqw;
-}
-
+/* probability chips over the ring (same 11x11 template as `.hb-grid`, so a cell sits on its tile) */
 .hb-odds {
   position: absolute;
   inset: 0;
   z-index: 4;
-  display: grid;
-  grid-template-columns: repeat(8, minmax(0, 1fr));
-  grid-template-rows: repeat(8, minmax(0, 1fr));
-  border-radius: 3cqw;
-  overflow: hidden;
   pointer-events: none;
 }
 .hb-odds__cell {
@@ -1259,35 +828,34 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(18, 10, 56, 0.4);
+  background: rgba(10, 28, 24, 0.42);
   animation: hb-odds-in 0.25s ease both;
 }
 .hb-odds__cell.has-chip {
-  background: hsl(var(--h) 85% 38% / 0.2);
+  background: hsl(var(--h) 85% 38% / 0.22);
 }
 .hb-odds__chip {
-  padding: 0.55cqw 1.1cqw 0.4cqw;
+  padding: calc(var(--hb-u) * 0.05) calc(var(--hb-u) * 0.1);
   border-radius: 99cqw;
-  background: hsl(var(--h) 88% 44% / 0.9);
+  background: hsl(var(--h) 88% 44% / 0.92);
   color: #fff;
-  font-size: 2.7cqw;
+  font-size: max(calc(var(--hb-u) * 0.2), 5.5px);
   font-weight: 800;
-  line-height: 1;
+  line-height: 1.1;
   white-space: nowrap;
-  text-shadow: 0 0.1cqw 0.25cqw rgba(0, 0, 0, 0.45);
-  box-shadow: 0 0 0 0.25cqw rgba(255, 255, 255, 0.85), 0 0.4cqw 0.8cqw rgba(0, 0, 0, 0.35);
+  text-shadow: 0 1px 1px rgba(0, 0, 0, 0.45);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.85), 0 calc(var(--hb-u) * 0.04) calc(var(--hb-u) * 0.1) rgba(0, 0, 0, 0.35);
 }
 .hb-odds__cell.is-top {
-  box-shadow: inset 0 0 0 0.5cqw var(--hb-gold), inset 0 0 2cqw rgba(255, 200, 87, 0.75);
+  box-shadow: inset 0 0 0 calc(var(--hb-u) * 0.1) var(--hb-gold), inset 0 0 calc(var(--hb-u) * 0.4) rgba(255, 202, 122, 0.75);
 }
 .hb-odds__cell.is-top .hb-odds__chip {
-  padding: 0.65cqw 1.2cqw 0.5cqw;
-  font-size: 3cqw;
-  box-shadow: 0 0 0 0.35cqw var(--hb-gold), 0 0 1.6cqw rgba(255, 200, 87, 0.95);
+  font-size: max(calc(var(--hb-u) * 0.23), 6px);
+  box-shadow: 0 0 0 calc(var(--hb-u) * 0.05) var(--hb-gold), 0 0 calc(var(--hb-u) * 0.3) rgba(255, 202, 122, 0.95);
 }
 .hb-odds__cell.is-top .hb-odds__chip::before {
   content: '\2605';
-  margin-right: 0.3cqw;
+  margin-right: 0.2em;
   color: #ffe27a;
 }
 @keyframes hb-odds-in {
@@ -1295,100 +863,7 @@
   to { opacity: 1; }
 }
 
-.hb-art__legend {
-  position: absolute;
-  left: 50%;
-  bottom: 0;
-  display: flex;
-  align-items: center;
-  gap: 1.8cqw;
-  max-width: 100%;
-  padding: 1cqw 2.4cqw 0.8cqw;
-  border-radius: 99cqw;
-  background: rgba(27, 19, 64, 0.8);
-  color: #fff;
-  font-size: 3cqw;
-  font-weight: 700;
-  line-height: 1;
-  white-space: nowrap;
-  transform: translateX(-50%);
-}
-.hb-legend {
-  display: flex;
-  align-items: center;
-  gap: 1cqw;
-}
-.hb-legend small {
-  font-size: 2.5cqw;
-  font-weight: 600;
-  opacity: 0.85;
-}
-.hb-legend__bar {
-  display: block;
-  width: 15cqw;
-  height: 2cqw;
-  border-radius: 99cqw;
-  background: linear-gradient(90deg, hsl(215 88% 46%), hsl(161 88% 46%), hsl(108 88% 46%), hsl(54 88% 46%), hsl(0 88% 46%));
-  box-shadow: 0 0 0 0.2cqw rgba(255, 255, 255, 0.7);
-}
-.hb-legend__total {
-  color: #ffe27a;
-}
-
 /* ---- reduced motion ------------------------------------------------------ */
-
-/* A warm city board with the open, mint-coloured table of a social board game. */
-.hb-board { --hb-ink: #24363c; --hb-ink-dim: #4c6266; font-family: var(--font-body, 'Segoe UI', sans-serif); }
-.hb-frame {
-  padding: .7cqw; border-radius: 2.3cqw; background: #f0ede1;
-  box-shadow: 0 .8cqw 0 #667f7c, 0 2cqw 4cqw #0005;
-}
-.hb-frame__sheen { box-shadow: inset 0 0 0 .2cqw #fff9; }
-.hb-tile--bl { border-bottom-left-radius: 1.7cqw; }
-.hb-tile--br { border-bottom-right-radius: 1.7cqw; }
-.hb-tile--tr { border-top-right-radius: 1.7cqw; }
-.hb-tile--tl { border-top-left-radius: 1.7cqw; }
-.hb-tile { --hb-bg: #f4f0e4; --tag-fs: max(2.1cqw, 8px); --head-h: max(3.8cqw, 17px); box-shadow: inset 0 0 0 .16cqw #ffffffb3; }
-.hb-tile__head { box-shadow: inset 0 -1px 0 #0002; }
-.hb-tile__price { padding: 0 .4em; font-size: max(2.1cqw, 8px); border-radius: .7cqw; font-weight: 750; text-shadow: none; }
-.hb-tile__name { padding: 0; margin: 0; top: 0; font-size: var(--fs, 2.15cqw); font-weight: 700; letter-spacing: -.025em; line-height: 1.15; }
-.hb-tile__body { padding: .5cqw .3cqw .7cqw; }
-.hb-tile.is-multi .hb-tile__name { font-size: min(var(--fs, 2.15cqw), 2.15cqw); }
-.hb-pill { padding: 0 .5em; height: 1.55em; font-size: max(1.7cqw, 7px); letter-spacing: .015em; box-shadow: none; }
-.hb-stage { padding: 1.1cqw; background: #f4f0e4; }
-.hb-stage__panel {
-  border-radius: 1.8cqw;
-  background: radial-gradient(ellipse at 50% 38%, #d7e9dd, #bad7cf);
-  box-shadow: inset 0 0 0 .22cqw #ffffff8f;
-}
-.hb-stage__panel::before {
-  content: ''; position: absolute; inset: 0; pointer-events: none; opacity: .2;
-  background-image: radial-gradient(#35665a 1px, transparent 1px); background-size: 4cqw 4cqw;
-  mask-image: radial-gradient(ellipse at center, transparent 25%, #000 100%);
-}
-.hb-stage__inner { padding: 3.8cqw 4.5cqw 3cqw; gap: 2cqw; }
-.hb-stage__top { height: 6.5cqw; }
-.hb-turn { background: #ffffff85; box-shadow: none; padding: 1.1cqw 1.8cqw; gap: 1.1cqw; }
-.hb-turn__name { font-size: 3.1cqw; line-height: 1.2; padding: 0; margin: 0; font-weight: 650; }
-.hb-turn__chip { height: 4cqw; padding: 0 1.2cqw; background: #2a6960; font-size: 2.2cqw; font-weight: 650; }
-.hb-turn__dot { width: 2.1cqw; height: 2.1cqw; box-shadow: 0 0 0 .4cqw #fff; }
-.hb-round { font-size: 2.8cqw; padding: 1.4cqw 1.8cqw; background: transparent; box-shadow: none; color: #46655e; font-weight: 600; }
-.hb-round.is-final { background: #ffca7a; color: #593e18; animation: none; }
-.hb-bubble-slot { min-height: 14.5cqw; margin-top: 1cqw; }
-.hb-bubble { min-height: 11.8cqw; border-radius: 2.5cqw; padding: 2cqw 3cqw; box-shadow: 0 .5cqw .4cqw #36534e29, inset 0 -.4cqw 0 var(--tone); background: #fffcf4; }
-.hb-bubble::after { background: #fffcf4; filter: none; }
-.hb-bubble__text { font-size: 3.7cqw; line-height: 1.25; padding: 0; margin: 0; font-weight: 550; letter-spacing: -.025em; }
-.hb-bubble--info { --tone: #58ad9c; }
-.hb-bubble--cheer { --tone: #d6a25e; }
-.hb-bubble--info .hb-bubble__you { color: #286b61; }
-.hb-art { margin-top: 1cqw; }
-.hb-art__box { animation: none; }
-.hb-art__caption { font-size: 2.4cqw; padding: 1cqw 2.4cqw; background: #2d5e55d9; letter-spacing: .025em; font-weight: 600; bottom: -1cqw; }
-.hb-stage__dice { height: 22cqw; margin-top: 1.3cqw; }
-.hb-odds-btn { width: 11cqw; height: 11cqw; border-radius: 2.5cqw; background: #ffffff70; color: #4a7167; box-shadow: inset 0 0 0 .2cqw #ffffffa3; }
-.hb-odds-btn__txt { font-size: 2.4cqw; }
-.hb-odds-btn__ico { height: 3.8cqw; }
-.hb-lucky { font-size: 2.4cqw; padding: 1.2cqw 1.4cqw; background: #e7f1d9; box-shadow: none; color: #446147; }
 
 @media (prefers-reduced-motion: reduce) {
   .hb-board *,
@@ -1401,8 +876,9 @@
   /* keep static affordances where an animation carried meaning */
   .hb-pawn__marker { transform: translateY(-0.4cqw); }
   .hb-tile.is-active::after { opacity: 1; }
-  .hb-dice.is-ready { box-shadow: 0 0 0 0.7cqw rgba(255, 200, 87, 0.95), 0 0 5cqw rgba(255, 177, 0, 0.7), inset 0 0.5cqw 0 rgba(255, 255, 255, 0.5); }
-  .hb-assist { animation: none !important; }
-  .hb-hotel::after,
-  .hb-tile.is-hotel::before { display: none; }
+  /* the snatch ring stays on as a steady outline, nothing pulses */
+  .hb-tile.is-snatch,
+  .hb-tile__snatch { animation: none; }
+  /* the event ring is static too */
+  .hb-tile.is-event:not(.is-snatch):not(.is-hl) { animation: none; }
 }

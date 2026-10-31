@@ -380,7 +380,7 @@ function Tower({ c }) {
   );
 }
 
-export function BuildingModel({ level = 0, color = PAL.saffron }) {
+function BuildingModel({ level = 0, color = PAL.saffron }) {
   const L = Math.max(0, Math.min(MAX_LEVEL, level | 0));
   switch (L) {
     case 0: return <Plot c={color} />;
@@ -391,9 +391,6 @@ export function BuildingModel({ level = 0, color = PAL.saffron }) {
     default: return <Hotel c={color} />;
   }
 }
-
-/** Good footprint centre scale for each level when placed on the big slab. */
-export const LEVEL_SCALE = [1.2, 1.18, 1.05, 0.96, 0.78, 0.76];
 
 function BuildingArtBase({ level = 0, color = PAL.saffron, size = 96, className, title }) {
   const L = Math.max(0, Math.min(MAX_LEVEL, level | 0));

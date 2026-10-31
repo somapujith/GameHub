@@ -2,42 +2,18 @@ import { useState } from 'react';
 import HubIcon from '@/platform/game/HubIcon.jsx';
 import Modal from '@/components/shell/Modal.jsx';
 import { Icon } from '@/components/shell/icons.jsx';
-import { Segmented, Toggle } from '@/components/shell/ui.jsx';
+import { Toggle } from '@/components/shell/ui.jsx';
 import { useToast } from '@/components/shell/Toast.jsx';
-import { DEFAULT_PROFILE, safeClearGame, useProfile, useSettings } from '@/components/shell/stores.js';
-import { playSfx } from '@/components/shell/audio.js';
-import { liveList } from './catalog.js';
-import GameSettings from './GameSettings.jsx';
+import { DEFAULT_PROFILE, useProfile, useSettings } from '@/components/shell/stores.js';
+import { playSfx } from '@/components/shell/sound.js';
 
-const SUBTITLES = [
-  { value: 'te', label: 'తెలుగు', sub: 'Telugu' },
-  { value: 'tn', label: 'Tenglish', sub: 'Latin script' },
-  { value: 'en', label: 'English', sub: 'Gist' },
-  { value: 'off', label: 'Off', sub: 'No subtitles' },
-];
-
-/** Story / campaign progress has no reset hook in the storage lib; clear its keys defensively. */
-function clearCampaignStorage() {
-  try {
-    const keys = [];
-    for (let k = 0; k < localStorage.length; k += 1) {
-      const key = localStorage.key(k);
-      if (key && /campaign/i.test(key)) keys.push(key);
-    }
-    keys.forEach((key) => localStorage.removeItem(key));
-  } catch {
-    /* storage unavailable */
-  }
-}
-
-/** Profile > Settings: sound, voice, subtitles, motion, per-game panels, reset progress. */
+/** Profile > Settings: sound effects, volume, motion, reset progress. */
 export default function SettingsSection() {
   const toast = useToast();
   const [settings, update] = useSettings();
   const [, updateProfile] = useProfile();
   const [confirmReset, setConfirmReset] = useState(false);
   const volume = Math.round(settings.volume * 100);
-  const withPanels = liveList().filter((g) => typeof g.loaders?.settingsPanel === 'function');
 
   const doReset = () => {
     updateProfile({
@@ -48,8 +24,6 @@ export default function SettingsSection() {
       lastDailyClaim: null,
       dailyStreak: 0,
     });
-    safeClearGame();
-    clearCampaignStorage();
     setConfirmReset(false);
     toast('Progress reset. Fresh start!', { tone: 'good' });
     // Some stores have no reset hook; a reload makes every screen re-read storage.
@@ -79,13 +53,6 @@ export default function SettingsSection() {
               if (v) setTimeout(() => playSfx('coin'), 80);
             }}
           />
-          <Toggle
-            icon={<Icon name="mic" size={20} />}
-            label="Voice lines"
-            hint="Spoken one-liners in games that have them"
-            checked={settings.voice}
-            onChange={(v) => update({ voice: v })}
-          />
           <div className="hh2-range">
             <label htmlFor="hh2-volume" className="hh2-range__label">
               <span>Volume</span>
@@ -107,14 +74,6 @@ export default function SettingsSection() {
           </div>
         </section>
 
-        <section className="hub-panel" aria-labelledby="hh2-sub-h">
-          <h3 id="hh2-sub-h" className="hub-section__title">
-            <HubIcon name="book" size={18} /> Subtitles
-          </h3>
-          <p className="hub-muted hh2-card__note">Shown with every voice line.</p>
-          <Segmented label="Subtitle language" value={settings.subtitles} onChange={(v) => update({ subtitles: v })} options={SUBTITLES} size="sm" className="hh-seg--wrap" />
-        </section>
-
         <section className="hub-panel" aria-labelledby="hh2-motion-h">
           <h3 id="hh2-motion-h" className="hub-section__title">
             <HubIcon name="spark" size={18} /> Motion
@@ -129,21 +88,12 @@ export default function SettingsSection() {
         </section>
       </div>
 
-      {withPanels.length > 0 && (
-        <div className="hh2-gamesettings">
-          <h3 className="hh2-subhead">Game settings</h3>
-          {withPanels.map((g) => (
-            <GameSettings key={g.id} game={g} />
-          ))}
-        </div>
-      )}
-
       <section className="hub-panel hh2-danger" aria-labelledby="hh2-reset-h">
         <div>
           <h3 id="hh2-reset-h" className="hub-section__title">
             <HubIcon name="refresh" size={18} /> Reset progress
           </h3>
-          <p className="hub-muted">Clears your XP, level, coins, offline stats, daily streak, story progress and any saved game on this device. Settings and your name stay.</p>
+          <p className="hub-muted">Clears your XP, level, coins, local stats and daily streak on this device. Settings and your name stay.</p>
         </div>
         <button type="button" className="hub-btn hh2-danger-btn" onClick={() => setConfirmReset(true)}>
           <Icon name="trash" size={18} /> Reset progress
@@ -165,7 +115,7 @@ export default function SettingsSection() {
           </>
         }
       >
-        <p>This cannot be undone. Your XP, coins, offline stats, streak, story progress and saved game will be cleared on this device.</p>
+        <p>This cannot be undone. Your XP, coins, local stats and streak will be cleared on this device.</p>
       </Modal>
     </section>
   );

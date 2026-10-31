@@ -2,7 +2,7 @@
 //
 //   node scripts/simulate.js [--games 150] [--players 2,3,4] [--seed 1] [--varied] [--humans 0]
 //                            [--rounds 30,50,unlimited] [--unlimited] [--set goal=60000,startCash=12000]
-//                            [--bot reserve=500,greed=1] [--quiet] [--fuzz]
+//                            [--bot reserve=1000,greed=1] [--quiet] [--fuzz]
 //
 // --rounds     round limits to run (default 30,50,unlimited). `unlimited` = maxRounds null.
 // --unlimited  shorthand for --rounds unlimited (simulator-only safety cap: 400 rounds, counted as "stalled").
@@ -15,8 +15,8 @@
 //              odd bids...), asserting every offered action is accepted by applyAction and the invariants hold.
 
 import {
-  createGame, applyAction, nextBotMove, chooseBotAction, getOptions, netWorth, liquidationValue, mulberry32,
-  BOARD_SIZE, MAX_LEVEL, GROUP_TILES, TILES, isBuyable, DEFAULT_SETTINGS,
+  createGame, applyAction, nextBotMove, chooseBotAction, botSnatchAction, getOptions, netWorth, liquidationValue, mulberry32,
+  BOARD_SIZE, JAIL_TILE, GO_TO_JAIL_TILE, MAX_LEVEL, GROUP_TILES, GROUPS, TILES, isBuyable, DEFAULT_SETTINGS, TOKEN_CAP, TRAPS_EACH, CITY_EVENTS, EVENT_EVERY,
 } from '../shared/index.js';
 
 // ---------- CLI ----------
@@ -55,7 +55,7 @@ const MAX_ACTIONS = 80000;
 // ---------- invariants ----------
 function checkInvariants(s) {
   const fail = (msg) => { throw new Error(`invariant: ${msg}`); };
-  if (!['roll', 'buy', 'auction', 'manage', 'debt', 'over'].includes(s.phase)) fail(`bad phase ${s.phase}`);
+  if (!['roll', 'buy', 'snatch', 'auction', 'manage', 'debt', 'over'].includes(s.phase)) fail(`bad phase ${s.phase}`);
   if (!Number.isFinite(s.round) || s.round < 1) fail(`bad round ${s.round}`);
   if (!Number.isInteger(s.rng)) fail('rng not an integer');
   const ids = new Set(s.players.map((p) => p.id));
@@ -64,10 +64,18 @@ function checkInvariants(s) {
     if (!Number.isFinite(p.cash) || !Number.isInteger(p.cash)) fail(`${p.id} cash not an integer: ${p.cash}`);
     if (p.cash < 0) fail(`${p.id} negative cash ${p.cash}`);
     if (!Number.isInteger(p.pos) || p.pos < 0 || p.pos >= BOARD_SIZE) fail(`${p.id} bad pos ${p.pos}`);
-    if (p.jailTurns < 0 || p.doubles < 0 || p.doubles > 2) fail(`${p.id} bad jail/doubles`);
-    if (p.jailTurns > 0 && p.pos !== 14) fail(`${p.id} jailed away from the jail tile`);
+    if (p.jailTurns < 0) fail(`${p.id} bad jail turns`);
+    if (!Number.isInteger(p.snatches) || p.snatches < 0 || p.snatches > Math.max(TOKEN_CAP, s.cfg.snatches)) fail(`${p.id} snatch tokens out of range: ${p.snatches}`);
+    if (s.cfg.snatches === 0 && p.snatches !== 0) fail(`${p.id} holds tokens with snatches off`);
+    if (!Number.isInteger(p.laps) || p.laps < 0) fail(`${p.id} bad laps ${p.laps}`);
+    if (!Number.isInteger(p.traps) || p.traps < 0 || p.traps > TRAPS_EACH) fail(`${p.id} bad trap count ${p.traps}`);
+    const placed = s.traps.filter((t) => t.owner === p.id);
+    if (placed.length + p.traps > TRAPS_EACH) fail(`${p.id} has more traps than it was given`);
+    if (p.bankrupt && placed.length) fail(`${p.id} bankrupt but its trap is still on the board`);
+    if (new Set(placed.map((t) => t.tile)).size !== placed.length) fail(`${p.id} has two traps on one tile`);
+    if (p.jailTurns > 0 && p.pos !== JAIL_TILE) fail(`${p.id} jailed away from the jail tile`);
     if (!Number.isInteger(p.jailCards) || p.jailCards < 0) fail(`${p.id} bad jailCards`);
-    if (!Number.isInteger(p.rollsSinceDouble) || p.rollsSinceDouble < 0) fail(`${p.id} bad rollsSinceDouble`);
+    if (!Number.isInteger(p.rollsSinceSix) || p.rollsSinceSix < 0) fail(`${p.id} bad rollsSinceSix`);
     if (!Number.isInteger(p.rentStreak) || p.rentStreak < 0) fail(`${p.id} bad rentStreak`);
     heldJailCards += p.jailCards;
     if (p.bankrupt && (p.cash !== 0 || s.owners.includes(p.id) || p.jailCards)) fail(`${p.id} bankrupt but still holds assets`);
@@ -75,6 +83,16 @@ function checkInvariants(s) {
     if (Number.isNaN(netWorth(s, p.id))) fail(`${p.id} worth NaN`);
   }
   if (heldJailCards > 1) fail('more than one jail card in circulation');
+  for (const t of s.traps) {
+    if (!ids.has(t.owner) || !Number.isInteger(t.tile) || t.tile < 0 || t.tile >= BOARD_SIZE || t.tile === GO_TO_JAIL_TILE) fail(`bad trap ${JSON.stringify(t)}`);
+  }
+  if (s.event !== null) {
+    const def = CITY_EVENTS.find((d) => d.id === s.event.id);
+    if (!def) fail(`unknown city event ${s.event.id}`);
+    if (s.event.round !== s.round || s.round % EVENT_EVERY !== 0) fail(`city event ${s.event.id} active in round ${s.round} (drawn for ${s.event.round})`);
+    if (Boolean(def.group) !== Boolean(s.event.group) || (s.event.group && !GROUPS[s.event.group])) fail('city event group shape');
+    if (!s.event.title || !s.event.text || !s.event.kind) fail('city event missing fields');
+  }
   if (!Array.isArray(s.mortgaged) || s.mortgaged.length !== BOARD_SIZE) fail('mortgaged array missing');
   for (let i = 0; i < BOARD_SIZE; i++) {
     const o = s.owners[i];
@@ -96,8 +114,9 @@ function checkInvariants(s) {
     if (s.mortgaged[i] && (o === null || lv > 0)) fail(`tile ${i} mortgaged while unowned or built`);
   }
   if (s.phase === 'buy' && s.pending?.type !== 'buy') fail('buy phase without pending buy');
+  if (s.phase === 'snatch' && s.pending?.type !== 'snatch') fail('snatch phase without pending snatch');
   if (s.phase === 'auction' && s.pending?.type !== 'auction') fail('auction phase without pending auction');
-  if (s.phase !== 'buy' && s.phase !== 'auction' && s.pending) fail(`pending left over in phase ${s.phase}`);
+  if (s.phase !== 'buy' && s.phase !== 'auction' && s.phase !== 'snatch' && s.pending) fail(`pending left over in phase ${s.phase}`);
   if (s.phase === 'debt') {
     const d = s.debt;
     if (!d) fail('debt phase without a debt');
@@ -127,7 +146,7 @@ function makePlayers(n, seed) {
     avatar: i,
     isBot: i >= HUMANS,
     bot: VARIED
-      ? { reserve: Math.round((300 + r() * 1200) / 50) * 50, greed: Math.round((0.7 + r() * 0.6) * 100) / 100 }
+      ? { reserve: Math.round((500 + r() * 1500) / 100) * 100, greed: Math.round((0.7 + r() * 0.6) * 100) / 100 }
       : { ...(Object.keys(BOT_OVERRIDE).length ? BOT_OVERRIDE : {}) },
   }));
 }
@@ -169,9 +188,11 @@ function fuzzAction(s, rnd) {
       add(1, { type: 'BID', amount: o.bid.max });
     }
   } else {
+    if (o.trap && rnd() < 0.5) c.push({ w: 4, a: { type: 'PLACE_TRAP', playerId: who, tile: Math.floor(rnd() * BOARD_SIZE) } }); // not 'offered': the Go to Jail square is refused
     if (o.roll) add(10, { type: 'ROLL' });
     if (o.endTurn) add(6, { type: 'END_TURN' });
     if (o.buy) add(5, { type: 'BUY' });
+    if (o.shield) add(2, { type: 'BUY', shield: true });
     if (o.skipBuy) add(2, { type: 'SKIP_BUY' });
     if (o.bail) add(2, { type: 'PAY_BAIL' });
     if (o.useJailCard) add(3, { type: 'USE_JAIL_CARD' });
@@ -199,12 +220,26 @@ function playGame(n, seed, maxRounds) {
   let state = createGame({ players, seed, settings: { ...(FUZZ ? { goal: 400000, startCash: 8000 } : {}), ...SETTINGS, maxRounds } });
   const rnd = mulberry32(seed ^ 0x5eed);
   let actions = 0;
-  const counts = { rent: 0, auction: 0, jail: 0, card: 0, bankrupt: 0, upgrade: 0, trade: 0, tradeOffer: 0, mortgage: 0, hotel: 0, debt: 0, sets: 0, jailCard: 0, assists: 0, declineAuctions: 0 };
+  const counts = { rent: 0, auction: 0, jail: 0, card: 0, bankrupt: 0, upgrade: 0, trade: 0, tradeOffer: 0, mortgage: 0, hotel: 0, debt: 0, sets: 0, jailCard: 0, assists: 0, declineAuctions: 0, snatched: 0, snatchBids: 0, shields: 0, tokens: 0, cityEvents: 0, traps: 0, trapsSprung: 0 };
   let stalled = false;
   while (state.phase !== 'over') {
     if (maxRounds === null && state.round > SAFETY_ROUNDS) { stalled = true; break; }
     let action = null;
-    if (FUZZ) {
+    if (state.phase === 'snatch') {
+      // Everybody who could snatch decides (bots by the trivial policy, fuzz seats at random), then the room's timer closes the window.
+      for (const id of [...state.pending.eligible]) {
+        if (state.phase !== 'snatch' || state.pending.claims.includes(id)) continue;
+        const press = FUZZ ? (rnd() < 0.5 && getOptions(state, id).snatch ? { type: 'SNATCH', playerId: id } : null) : botSnatchAction(state, id);
+        if (!press) continue;
+        const r = applyAction(state, press);
+        if (r.error) throw new Error(`engine rejected ${JSON.stringify(press)}: ${r.error}`);
+        state = r.state;
+        actions += 1;
+        checkInvariants(state);
+      }
+      if (state.phase !== 'snatch') continue; // the last press closed it
+      action = { type: 'SNATCH_CLOSE' };
+    } else if (FUZZ) {
       action = fuzzAction(state, rnd);
       if (!action) throw new Error(`fuzz: nobody can act in phase ${state.phase}`);
     } else action = nextBotMove(state, rnd);
@@ -240,6 +275,13 @@ function playGame(n, seed, maxRounds) {
       else if (e.type === 'debt') counts.debt += 1;
       else if (e.type === 'set_complete') counts.sets += 1;
       else if (e.type === 'dice' && e.assist) counts.assists += 1;
+      else if (e.type === 'snatch_end' && e.outcome === 'snatched') counts.snatched += 1;
+      else if (e.type === 'snatch_end' && e.outcome === 'bidding') counts.snatchBids += 1;
+      else if (e.type === 'shield') counts.shields += 1;
+      else if (e.type === 'token_earned') counts.tokens += 1;
+      else if (e.type === 'city_event') counts.cityEvents += 1;
+      else if (e.type === 'trap_placed') counts.traps += 1;
+      else if (e.type === 'trap_sprung') counts.trapsSprung += 1;
     }
     state = res.state;
     checkInvariants(state);
@@ -312,7 +354,7 @@ for (const maxRounds of ROUND_LIMITS) {
       console.log(`turns/game   : ${f1(row.avgTurns)} (avg)   actions/game ${f1(row.avgActions)}`);
       console.log(`wins by seat : ${row.seatWins.map((w, i) => `S${i + 1} ${f1(w)}%`).join('  ')}`);
       const c = row.counts;
-      console.log(`per game avg : rents ${f1(c.rent)}  upgrades ${f1(c.upgrade)}  hotels ${f2(c.hotel)}  sets ${f1(c.sets)}  auctions won ${f1(c.auction)} (declined-tile ${f1(c.declineAuctions)})  bankruptcies ${f2(c.bankrupt)}`);
+      console.log(`per game avg : rents ${f1(c.rent)}  upgrades ${f1(c.upgrade)}  hotels ${f2(c.hotel)}  sets ${f1(c.sets)}  auctions won ${f1(c.auction)} (declined-tile ${f1(c.declineAuctions)})  bankruptcies ${f2(c.bankrupt)}  snatched ${f2(c.snatched)} (bidding ${f2(c.snatchBids)})  shields ${f2(c.shields)}  tokens earned ${f2(c.tokens)}  city events ${f2(c.cityEvents)}  traps ${f2(c.traps)} (sprung ${f2(c.trapsSprung)})`);
       console.log(`               mortgages ${f1(c.mortgage)}  debts ${f1(c.debt)}  trades ${f2(c.trade)}/${f2(c.tradeOffer)} offers  jail ${f1(c.jail)} (cards used ${f2(c.jailCard)})  lucky-dice assists ${f1(c.assists)}`);
       console.log(`games with   : a trade ${f1(row.tradePct)}%  a mortgage ${f1(row.mortgagePct)}%  a hotel ${f1(row.hotelPct)}%`);
     }
@@ -320,7 +362,7 @@ for (const maxRounds of ROUND_LIMITS) {
 }
 
 const u = { ...DEFAULT_SETTINGS, ...SETTINGS };
-console.log(`\nsettings: startCash ${u.startCash}, goal ${u.goal}, passStart ${u.passStart}, tax ${u.taxAmount}, film ${u.filmFee}, dice ${u.dice}${VARIED ? ' (varied bots)' : ''}`);
+console.log(`\nsettings: startCash ${u.startCash}, goal ${u.goal}, passStart ${u.passStart}, bail ${u.bailFine}, dice ${u.dice}${VARIED ? ' (varied bots)' : ''}`);
 console.log(`${failures === 0 ? 'ALL INVARIANTS HELD' : `${failures} GAME(S) FAILED`} in ${((Date.now() - t0) / 1000).toFixed(1)}s`);
 if (QUIET) {
   for (const r of summary) {

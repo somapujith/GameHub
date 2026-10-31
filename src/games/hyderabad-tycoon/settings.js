@@ -2,7 +2,8 @@
 // and the one-line summary. Pure (no React), so the manifest stays tiny and tests run in node.
 //
 // The server is the source of truth: values here MUST equal worker/settings.js (enforced by
-// settings.test.js). `src/components/shell/gameSettings.js` re-exports this file for older imports.
+// settings.test.js). The schema keeps every key the server accepts, but the lobby only shows the
+// end-cash limit (`LOBBY_SETTINGS`); rounds, dice, start cash and the auction stay at their defaults.
 import { formatINR } from '@shared/format.js';
 
 export const GOAL_PRESETS = [30000, 50000, 70000, 100000];
@@ -11,52 +12,42 @@ export const GOAL_MAX = 1000000;
 export const GOAL_STEP = 5000;
 export const DEFAULT_GOAL = 70000;
 
-export const ROUND_OPTIONS = [30, 50, null]; // null = unlimited (never Infinity)
-export const DEFAULT_ROUNDS = 50;
+export const DEFAULT_ROUNDS = 50; // the schema also offers 30 and null (unlimited), but the lobby never shows it
 
 export const CASH_PRESETS = [10000, 15000, 20000, 25000];
 export const CASH_MIN = 5000;
 export const CASH_MAX = 100000;
 export const DEFAULT_CASH = 15000;
 
-export const DICE_MODES = ['lucky', 'fair'];
 export const DEFAULT_DICE = 'lucky';
 export const DEFAULT_AUCTION_ON_DECLINE = true;
 
-/** localStorage key of the last offline setup choices. */
-export const SETUP_KEY = 'hyd:lastSetup';
+// Snatch (docs/GAME_RULES.md section 9): engine settings with defaults, validated by worker/settings.js.
+// They are not host settings: not in SETTINGS_SCHEMA and never shown in the lobby.
+export const SNATCHES_DEFAULT = 1; // tokens each player starts with
+export const SNATCHES_MAX = 3;
+export const SNATCH_MS_DEFAULT = 3000; // how long the snatch window stays open
+export const SNATCH_MS_MIN = 1000;
+export const SNATCH_MS_MAX = 10000;
 
 export const clampGoal = (g) => Math.max(GOAL_MIN, Math.min(GOAL_MAX, Math.round(Number(g) || DEFAULT_GOAL)));
 
-/** Lowest target that still leaves room to win from this start cash. */
-export const minGoalFor = (startCash) => Math.max(GOAL_MIN, Math.ceil((Number(startCash) + GOAL_STEP) / GOAL_STEP) * GOAL_STEP);
-
-export const roundsLabel = (maxRounds, { short = false } = {}) => {
-  if (maxRounds === null) return short ? 'Unlimited' : 'Unlimited rounds';
-  return short ? String(maxRounds) : `${maxRounds} rounds`;
-};
-
-export const diceLabel = (dice) => (dice === 'fair' ? 'Fair dice' : 'Lucky dice');
-
-/**
- * "Target ₹70,000 · 50 rounds · Start ₹15,000 · Lucky dice". Missing keys mean the engine
- * defaults (50 rounds, lucky dice).
- */
+/** The one line the lobby shows everyone: "First to reach ₹70,000 wins". A missing goal means the default. */
 export function settingsSummary(s = {}) {
-  const rounds = s.maxRounds === undefined ? DEFAULT_ROUNDS : s.maxRounds;
-  return [
-    `Target ${formatINR(s.goal ?? DEFAULT_GOAL)}`,
-    roundsLabel(rounds),
-    `Start ${formatINR(s.startCash ?? DEFAULT_CASH)}`,
-    diceLabel(s.dice ?? DEFAULT_DICE),
-  ].join(' · ');
+  return `First to reach ${formatINR(s.goal ?? DEFAULT_GOAL)} wins`;
 }
 
-/** Host settings rendered by the lobby (and read-only for guests via `summarize`). */
+/** The only schema keys the lobby renders (manifest `lobbySettings`): the end-cash limit. */
+export const LOBBY_SETTINGS = ['goal'];
+
+/** The fixed table rules, one muted line under the end-cash limit (manifest `tableRules`). */
+export const TABLE_RULES = `Single die - ${SNATCHES_DEFAULT} Snatch${SNATCHES_DEFAULT === 1 ? '' : 'es'} each - sealed bidding on a tie`;
+
+/** Host settings schema. The lobby renders just `LOBBY_SETTINGS`; the full set is what the server validates. */
 export const SETTINGS_SCHEMA = [
   {
     key: 'goal',
-    label: 'Winning target',
+    label: 'End cash limit',
     type: 'stepper',
     format: 'inr',
     min: GOAL_MIN,

@@ -3,22 +3,21 @@ import { BADGES, buildBadgeContext, evaluateBadges } from './badges.js';
 import { fmtStat, resolveGameStats, statDefs, statValue } from './gameStats.js';
 import { playersLabel } from './gameTheme.js';
 
-const profile = (stats = {}, extra = {}) => ({ dailyStreak: 0, stats: { games: 0, wins: 0, bestWorth: 0, rentEarned: 0, hotelsBuilt: 0, ...stats }, ...extra });
-
 describe('resolveGameStats', () => {
   it('prefers the server per-game stats', () => {
     const user = { gameStats: { 'hyderabad-tycoon': { games: 3, wins: 2, bestScore: 5000, rating: 1010 } } };
-    expect(resolveGameStats({ user, profile: profile({ games: 99 }), gameId: 'hyderabad-tycoon' })).toMatchObject({ games: 3, wins: 2, bestScore: 5000, source: 'server' });
+    expect(resolveGameStats({ user, gameId: 'hyderabad-tycoon' })).toMatchObject({ games: 3, wins: 2, bestScore: 5000, source: 'server' });
   });
 
-  it('falls back to the offline record for the default game only', () => {
-    const p = profile({ games: 4, wins: 1, bestWorth: 70000 });
-    expect(resolveGameStats({ user: null, profile: p, gameId: 'hyderabad-tycoon' })).toMatchObject({ games: 4, wins: 1, bestScore: 70000, source: 'local' });
-    expect(resolveGameStats({ user: null, profile: p, gameId: 'some-other-game' })).toBeNull();
+  it('falls back to the legacy account totals for the default game only', () => {
+    const user = { stats: { games: 4, wins: 1, bestWorth: 70000 } };
+    expect(resolveGameStats({ user, gameId: 'hyderabad-tycoon' })).toMatchObject({ games: 4, wins: 1, bestScore: 70000, source: 'account' });
+    expect(resolveGameStats({ user, gameId: 'some-other-game' })).toBeNull();
   });
 
-  it('returns null when there is nothing to show', () => {
-    expect(resolveGameStats({ user: null, profile: profile(), gameId: 'hyderabad-tycoon' })).toBeNull();
+  it('returns null when there is nothing to show (an on-device profile no longer counts)', () => {
+    expect(resolveGameStats({ user: null, gameId: 'hyderabad-tycoon' })).toBeNull();
+    expect(resolveGameStats({ user: { stats: { games: 0, wins: 0, bestWorth: 0 } }, gameId: 'hyderabad-tycoon' })).toBeNull();
   });
 });
 
@@ -56,27 +55,40 @@ describe('badges', () => {
   });
 
   it('earns nothing for a brand-new player', () => {
-    const ctx = buildBadgeContext({ perGame: [], profile: profile(), level: 1, friends: 0 });
+    const ctx = buildBadgeContext({ perGame: [], level: 1, friends: 0 });
     expect(earnedIds(ctx)).toEqual([]);
   });
 
-  it('derives First Win, 10 Wins and Hotel Tycoon from stats', () => {
+  it('derives First Win and 10 Wins from the per-game stats', () => {
     const per = [{ games: 12, wins: 10 }];
-    const ctx = buildBadgeContext({ perGame: per, profile: profile({ hotelsBuilt: 5 }), level: 2, friends: 0 });
-    const ids = earnedIds(ctx);
-    expect(ids).toEqual(expect.arrayContaining(['rookie', 'first-win', 'ten-wins', 'hotel-tycoon']));
+    const ids = earnedIds(buildBadgeContext({ perGame: per, level: 2, friends: 0 }));
+    expect(ids).toEqual(expect.arrayContaining(['rookie', 'first-win', 'ten-wins']));
     expect(ids).not.toContain('social-butterfly');
   });
 
+  it('Landlord reads the rent the server counts on the account; Hotel Tycoon is gone (no server data)', () => {
+    expect(BADGES.some((b) => b.id === 'hotel-tycoon')).toBe(false);
+    const user = { stats: { rentEarned: 50000 } };
+    expect(earnedIds(buildBadgeContext({ perGame: [], user, level: 1, friends: 0 }))).toContain('landlord');
+    expect(earnedIds(buildBadgeContext({ perGame: [], user: { stats: { rentEarned: 49999 } }, level: 1, friends: 0 }))).not.toContain('landlord');
+    expect(earnedIds(buildBadgeContext({ perGame: [], level: 1, friends: 0 }))).not.toContain('landlord');
+  });
+
+  it('Level 5 follows the level it is given (the server level when signed in) and the streak the device keeps', () => {
+    expect(earnedIds(buildBadgeContext({ perGame: [], level: 5, friends: 0 }))).toContain('level-5');
+    expect(earnedIds(buildBadgeContext({ perGame: [], level: 4, friends: 0 }))).not.toContain('level-5');
+    expect(earnedIds(buildBadgeContext({ perGame: [], streak: 7, level: 1, friends: 0 }))).toContain('streak-7');
+  });
+
   it('hides Social Butterfly until the friends list is known, then needs 3 friends', () => {
-    const base = { perGame: [], profile: profile(), level: 1 };
+    const base = { perGame: [], level: 1 };
     expect(evaluateBadges(buildBadgeContext({ ...base, friends: null })).some((b) => b.id === 'social-butterfly')).toBe(false);
     expect(earnedIds(buildBadgeContext({ ...base, friends: 3 }))).toContain('social-butterfly');
     expect(earnedIds(buildBadgeContext({ ...base, friends: 2 }))).not.toContain('social-butterfly');
   });
 
   it('reports progress for locked badges', () => {
-    const ctx = buildBadgeContext({ perGame: [{ games: 5, wins: 5 }], profile: profile(), level: 1, friends: 0 });
+    const ctx = buildBadgeContext({ perGame: [{ games: 5, wins: 5 }], level: 1, friends: 0 });
     const ten = evaluateBadges(ctx).find((b) => b.id === 'ten-wins');
     expect(ten).toMatchObject({ earned: false, value: 5, target: 10, pct: 50 });
   });

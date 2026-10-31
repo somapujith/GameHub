@@ -22,7 +22,6 @@ export default function EmoteBar({ session }) {
     setCool(true);
     timer.current = setTimeout(() => setCool(false), 1500);
   };
-  if (session.mode !== 'online') return null;
   return <section className="table-chat" aria-label="Room chat">
     {open && history.length > 0 && <ol ref={list} className="table-chat__history" role="log" aria-label="Chat messages" aria-live="polite" aria-relevant="additions" onScroll={(event) => { const el = event.currentTarget; stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 32; }}>
       {history.slice(-100).map((message) => {

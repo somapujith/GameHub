@@ -6,23 +6,34 @@ import { DEFAULT_SETTINGS, SETTING_LIMITS } from '@shared/index.js';
 import {
   CASH_PRESETS,
   GOAL_PRESETS,
+  LOBBY_SETTINGS,
   SETTINGS_SCHEMA,
+  SNATCHES_DEFAULT,
+  SNATCHES_MAX,
+  SNATCH_MS_DEFAULT,
+  SNATCH_MS_MAX,
+  SNATCH_MS_MIN,
+  TABLE_RULES,
   clampGoal,
-  minGoalFor,
   settingsSummary,
 } from './settings.js';
+
+// Snatch settings are engine settings with defaults, not host settings: the lobby schema must never list them.
+const ENGINE_ONLY = ['snatches', 'snatchMs'];
 
 const field = (key) => SETTINGS_SCHEMA.find((f) => f.key === key);
 
 describe('settings schema vs worker/settings.js', () => {
-  it('describes exactly the keys the server accepts', () => {
-    expect(SETTINGS_SCHEMA.map((f) => f.key).sort()).toEqual(Object.keys(server.ROOM_DEFAULTS).sort());
+  it('describes exactly the host settings the server accepts', () => {
+    const hostKeys = Object.keys(server.ROOM_DEFAULTS).filter((k) => !ENGINE_ONLY.includes(k));
+    expect(SETTINGS_SCHEMA.map((f) => f.key).sort()).toEqual(hostKeys.sort());
   });
 
   it('uses the server defaults, which are the engine defaults', () => {
     for (const f of SETTINGS_SCHEMA) {
       expect(f.default, f.key).toEqual(server.ROOM_DEFAULTS[f.key]);
     }
+    expect(ENGINE_ONLY.filter((k) => SETTINGS_SCHEMA.some((f) => f.key === k))).toEqual([]);
     expect(server.ROOM_DEFAULTS.goal).toBe(DEFAULT_SETTINGS.goal);
     expect(server.ROOM_DEFAULTS.startCash).toBe(DEFAULT_SETTINGS.startCash);
     expect(server.ROOM_DEFAULTS.maxRounds).toBe(DEFAULT_SETTINGS.maxRounds);
@@ -80,22 +91,47 @@ describe('settings schema vs worker/settings.js', () => {
   });
 });
 
+describe('snatch constants vs worker/settings.js and the engine', () => {
+  it('mirror the server names and values', () => {
+    expect(SNATCHES_DEFAULT).toBe(server.SNATCHES_DEFAULT);
+    expect(SNATCHES_MAX).toBe(server.SNATCHES_MAX);
+    expect(SNATCH_MS_DEFAULT).toBe(server.SNATCH_MS_DEFAULT);
+    expect(SNATCH_MS_MIN).toBe(server.SNATCH_MS_MIN);
+    expect(SNATCH_MS_MAX).toBe(server.SNATCH_MS_MAX);
+  });
+  it('the defaults are 1 token and a 3 s window, the engine defaults', () => {
+    expect([SNATCHES_DEFAULT, SNATCH_MS_DEFAULT]).toEqual([1, 3000]);
+    expect(DEFAULT_SETTINGS.snatches).toBe(SNATCHES_DEFAULT);
+    expect(DEFAULT_SETTINGS.snatchMs).toBe(SNATCH_MS_DEFAULT);
+    expect(SNATCH_MS_MIN).toBeLessThanOrEqual(SNATCH_MS_DEFAULT);
+    expect(SNATCH_MS_DEFAULT).toBeLessThanOrEqual(SNATCH_MS_MAX);
+    expect(SNATCHES_DEFAULT).toBeLessThanOrEqual(SNATCHES_MAX);
+  });
+});
+
+describe('lobby settings', () => {
+  it('tells the table rules in one line', () => {
+    expect(TABLE_RULES).toBe('Single die - 1 Snatch each - sealed bidding on a tie');
+  });
+  it('shows only the end-cash limit, a real schema key labelled for players', () => {
+    expect(LOBBY_SETTINGS).toEqual(['goal']);
+    for (const k of LOBBY_SETTINGS) expect(field(k)).toBeTruthy();
+    expect(field('goal').label).toBe('End cash limit');
+  });
+});
+
 describe('settingsSummary (manifest.summarize)', () => {
-  it('formats the defaults', () => {
-    expect(settingsSummary({ goal: 70000, maxRounds: 50, startCash: 15000, dice: 'lucky' })).toBe(
-      'Target ₹70,000 · 50 rounds · Start ₹15,000 · Lucky dice',
-    );
+  it('names the end-cash limit only', () => {
+    expect(settingsSummary({ goal: 70000, maxRounds: 50, startCash: 15000, dice: 'lucky' })).toBe('First to reach ₹70,000 wins');
   });
 
-  it('falls back to the engine defaults for missing keys', () => {
-    expect(settingsSummary()).toBe('Target ₹70,000 · 50 rounds · Start ₹15,000 · Lucky dice');
-    expect(settingsSummary({})).toBe('Target ₹70,000 · 50 rounds · Start ₹15,000 · Lucky dice');
+  it('falls back to the default goal for missing keys', () => {
+    expect(settingsSummary()).toBe('First to reach ₹70,000 wins');
+    expect(settingsSummary({})).toBe('First to reach ₹70,000 wins');
   });
 
-  it('handles unlimited rounds, fair dice and Indian digit grouping', () => {
-    expect(settingsSummary({ goal: 100000, maxRounds: null, startCash: 25000, dice: 'fair' })).toBe(
-      'Target ₹1,00,000 · Unlimited rounds · Start ₹25,000 · Fair dice',
-    );
+  it('uses Indian digit grouping', () => {
+    expect(settingsSummary({ goal: 100000 })).toBe('First to reach ₹1,00,000 wins');
   });
 });
 
@@ -104,10 +140,5 @@ describe('goal helpers', () => {
     expect(clampGoal(5)).toBe(server.GOAL_MIN);
     expect(clampGoal(5_000_000)).toBe(server.GOAL_MAX);
     expect(clampGoal('nope')).toBe(70000);
-  });
-
-  it('leaves room to win from the start cash', () => {
-    expect(minGoalFor(15000)).toBe(20000);
-    expect(minGoalFor(5000)).toBe(10000);
   });
 });

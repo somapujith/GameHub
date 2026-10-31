@@ -1,18 +1,19 @@
 // Trading. One default export that renders three states from the session:
-//   composer  (opened from the ActionBar "Trade" button)      -> { type:'TRADE_OFFER', to, give, get }
+//   composer  (opened from the control panel's Trade tab)      -> { type:'TRADE_OFFER', to, give, get }
 //   waiting   (my offer is outstanding: view.trade.from === me) -> { type:'TRADE_CANCEL' }
 //   incoming  (an offer awaits MY answer: view.trade.to === me) -> TRADE_ACCEPT / TRADE_REJECT (+30 s ring online)
 // `give` is what the proposer hands over, `get` what the proposer receives (engine convention).
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Avatar } from '@/components/art/index.js';
 import { GROUPS, GROUP_TILES, TILES, isBuyable, mortgageValue } from '@shared/board.js';
-import { formatINR } from '@shared/format.js';
+import { compactINR, formatINR } from '@shared/format.js';
 import Sheet from './ui/Sheet.jsx';
 import Button from './ui/Button.jsx';
 import Icon from './ui/Icon.jsx';
 import Pill from './ui/Pill.jsx';
 import TileChip from './ui/TileChip.jsx';
-import { useHeld } from './ui/helpers.js';
+import { SET_GROUPS, setOfTile, useHeld } from './ui/helpers.js';
+import '@/styles/controlpanel.css';
 
 const OFFER_SECONDS = 30;
 
@@ -58,6 +59,12 @@ const tradeable = (state, tileId) => isBuyable(TILES[tileId]) && !hasBuildings(s
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 const nameOf = (p) => (p ? p.name : 'Someone');
 
+/** Tile ids in colour-set order (brown ... dark blue, stations, utilities), then board order. */
+const setRank = (id) => SET_GROUPS.findIndex((g) => g === setOfTile(TILES[id]));
+const bySet = (a, b) => setRank(a) - setRank(b) || a - b;
+/** Board price next to a chip, so a trade can be weighed at a glance. */
+const priceTag = (id) => <small className="hg-trade-price">{compactINR(TILES[id].price)}</small>;
+
 /* ------------------------------------------------------------------ small views */
 
 function Who({ player, you }) {
@@ -78,7 +85,9 @@ function SideView({ title, side, state, tone }) {
       {side?.cash > 0 ? <p className="hg-trade-cash">{formatINR(side.cash)} cash</p> : null}
       {tiles.length ? (
         <div className="hg-chips">
-          {tiles.map((t) => <TileChip key={t} tileId={t} mortgaged={!!state.mortgaged?.[t]} level={state.levels?.[t] || 0} />)}
+          {[...tiles].sort(bySet).map((t) => (
+            <TileChip key={t} tileId={t} mortgaged={!!state.mortgaged?.[t]} level={state.levels?.[t] || 0} extra={priceTag(t)} />
+          ))}
         </div>
       ) : (
         side?.cash > 0 ? null : <p className="hg-empty">Nothing</p>
@@ -94,18 +103,18 @@ function CashStepper({ label, value, max, onChange }) {
     <div className="hg-cashstep">
       <span className="hg-cashstep-label">{label}</span>
       <div className="hg-cashstep-row">
-        <Button variant="dark" size="sm" aria-label={`${label}: minus 500`} disabled={value <= 0} onClick={() => set(value - 500)}>{'−'}500</Button>
+        <Button variant="dark" size="sm" aria-label={`${label}: minus 1000`} disabled={value <= 0} onClick={() => set(value - 1000)}>{'−'}1k</Button>
         <Button variant="dark" size="sm" aria-label={`${label}: minus 100`} disabled={value <= 0} onClick={() => set(value - 100)}>{'−'}100</Button>
         <output className="hg-cashstep-val" aria-live="polite">{formatINR(value)}</output>
         <Button variant="dark" size="sm" aria-label={`${label}: plus 100`} disabled={value >= max} onClick={() => set(value + 100)}>+100</Button>
-        <Button variant="dark" size="sm" aria-label={`${label}: plus 500`} disabled={value >= max} onClick={() => set(value + 500)}>+500</Button>
+        <Button variant="dark" size="sm" aria-label={`${label}: plus 1000`} disabled={value >= max} onClick={() => set(value + 1000)}>+1k</Button>
       </div>
     </div>
   );
 }
 
 function TilePicker({ owner, ownerIsMe, state, selected, onToggle }) {
-  const ids = TILES.filter((t) => state.owners[t.id] === owner.id && isBuyable(t)).map((t) => t.id);
+  const ids = TILES.filter((t) => state.owners[t.id] === owner.id && isBuyable(t)).map((t) => t.id).sort(bySet);
   return (
     <div className="hg-picker">
       <div className="hg-picker-head"><Who player={owner} you={ownerIsMe} /><small>{ownerIsMe ? 'tiles you own' : 'tiles they own'}</small></div>
@@ -124,7 +133,7 @@ function TilePicker({ owner, ownerIsMe, state, selected, onToggle }) {
                 selected={selected.includes(id)}
                 disabled={blocked}
                 onClick={() => onToggle(id)}
-                extra={blocked ? <Icon name="lock" size={12} /> : null}
+                extra={blocked ? <Icon name="lock" size={12} /> : priceTag(id)}
               />
             );
           })}
@@ -285,8 +294,8 @@ function ComposerSheet({ session, open, onClose }) {
                   <span>You get <b>{formatINR(getting)}</b></span>
                 </div>
                 {fair.hint ? <p className="hg-hint">{fair.hint} Values use board prices.</p> : null}
-                {myDone.map((g) => <p key={`m${g}`} className="hg-hint is-ok"><Icon name="check" size={14} /> Completes {GROUPS[g].name} for you</p>)}
-                {theirDone.map((g) => <p key={`t${g}`} className="hg-hint is-warn"><Icon name="info" size={14} /> Completes {GROUPS[g].name} for {partner.name}, they may refuse or value it highly</p>)}
+                {myDone.map((g) => <p key={`m${g}`} className="hg-hint is-ok"><Icon name="check" size={14} /> Completes the {GROUPS[g].name} set for you (double rent, unlocks building)</p>)}
+                {theirDone.map((g) => <p key={`t${g}`} className="hg-hint is-warn"><Icon name="info" size={14} /> Completes the {GROUPS[g].name} set for {partner.name}, they may refuse or value it highly</p>)}
               </section>
             </>
           ) : (
@@ -365,8 +374,8 @@ function IncomingSheet({ session }) {
               <Pill tone={fair.tone}>{label}</Pill>
               <span>You give <b>{formatINR(giving)}</b></span>
             </div>
-            {myDone.map((g) => <p key={`m${g}`} className="hg-hint is-ok"><Icon name="check" size={14} /> Completes {GROUPS[g].name} for you</p>)}
-            {theirDone.map((g) => <p key={`t${g}`} className="hg-hint is-warn"><Icon name="info" size={14} /> Completes {GROUPS[g].name} for {nameOf(from)}</p>)}
+            {myDone.map((g) => <p key={`m${g}`} className="hg-hint is-ok"><Icon name="check" size={14} /> Completes the {GROUPS[g].name} set for you (double rent, unlocks building)</p>)}
+            {theirDone.map((g) => <p key={`t${g}`} className="hg-hint is-warn"><Icon name="info" size={14} /> Completes the {GROUPS[g].name} set for {nameOf(from)}</p>)}
             {online ? <p className="hg-hint">If you do not answer in {OFFER_SECONDS} seconds the offer is rejected.</p> : null}
           </section>
         </>

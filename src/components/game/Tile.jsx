@@ -1,19 +1,34 @@
 import { memo } from 'react';
-import { GROUPS, LEVEL_NAMES, MAX_LEVEL, tilePosition } from '@shared/board.js';
-import { compactINR, formatINR } from '@shared/format.js';
+import { GROUPS, LEVEL_NAMES, MAX_LEVEL, PASS_START, tilePosition, tileSide } from '@shared/board.js';
+import { formatINR } from '@shared/format.js';
 import { TileIcon } from '@/components/art/index.js';
 import '@/styles/board.css';
 
-const SHY = '­';
+const SHY = '\u00ad';
 
-// Hand-picked syllable breaks for the long Hyderabad names so they wrap on 40px tiles.
+// Hand-picked syllable breaks for the long Hyderabad names so they wrap on a 30px tile (a soft hyphen
+// only breaks the word when it does not fit, so wide boards still show the whole name).
 const BREAKS = {
   Dilsukhnagar: 'Dilsukh' + SHY + 'nagar',
-  Bachupally: 'Bachu' + SHY + 'pally',
+  Mehdipatnam: 'Mehdi' + SHY + 'patnam',
   Kukatpally: 'Kukat' + SHY + 'pally',
   Gachibowli: 'Gachi' + SHY + 'bowli',
+  Chowmahalla: 'Chow' + SHY + 'mahalla',
+  Secunderabad: 'Secun' + SHY + 'derabad',
+  Lingampally: 'Lingam' + SHY + 'pally',
+  Kacheguda: 'Kache' + SHY + 'guda',
+  Charminar: 'Char' + SHY + 'minar',
   Electricity: 'Electri' + SHY + 'city',
-  Manikonda: 'Mani' + SHY + 'konda',
+  Golconda: 'Gol' + SHY + 'conda',
+  Madhapur: 'Madha' + SHY + 'pur',
+  Kondapur: 'Konda' + SHY + 'pur',
+  Malakpet: 'Malak' + SHY + 'pet',
+  Nampally: 'Nam' + SHY + 'pally',
+  Begumpet: 'Begum' + SHY + 'pet',
+  Ameerpet: 'Ameer' + SHY + 'pet',
+  District: 'Dis' + SHY + 'trict',
+  Lumbini: 'Lum' + SHY + 'bini',
+  Challan: 'Chal' + SHY + 'lan',
 };
 const VOWELS = 'aeiouAEIOU';
 
@@ -34,66 +49,72 @@ function hyphenate(word) {
 export function softName(text) {
   return text
     .split(' ')
-    .map((w) => (w.length >= 9 ? hyphenate(w) : w))
+    .map((w) => (BREAKS[w] || w.length >= 9 ? hyphenate(w) : w))
     .join(' ');
 }
 
-// Icon tiles keep their name on ONE short line under the icon (the icon carries the identity;
-// the full name is in the tooltip, the accessible name and the property sheet).
-const ICON_LABELS = {
-  'Hussain Sagar': 'H. Sagar',
-  'Water Board': 'Water',
-  Electricity: 'Electric',
-  'Property Tax': 'Tax',
+// Outer corners of the board follow the frame's rounding: START bottom-right, Jail bottom-left,
+// Chai Break top-left, Go to Jail top-right (see tilePosition).
+const CORNER_CLASS = { 0: 'hb-tile--br', 10: 'hb-tile--bl', 20: 'hb-tile--tl', 30: 'hb-tile--tr' };
+
+// Second line on the corner tiles (hidden on small boards).
+const CORNER_SUB = {
+  start: `Collect ${formatINR(PASS_START)}`,
+  jail: 'Just visiting',
+  parking: 'Take a break',
+  gotojail: 'Straight to jail',
 };
 
-/** Font size (in cqw of the board) that keeps the longest unbroken chunk inside the tile. */
-export function fitSize(text, max = 2.8, min = 2.25, oneLine = false) {
-  const longest = oneLine ? text.length : Math.max(1, ...text.split(/[\s­]+/).map((s) => s.length));
-  return Math.max(min, Math.min(max, 11.2 / (longest * 0.56)));
+// ---- city event marks -------------------------------------------------------
+// One frozen descriptor per effect, shared by every tile it touches, so a memoised Tile only re-renders
+// when its own mark appears or disappears.
+const MARKS = {
+  monsoon: Object.freeze({ tone: 'rain', text: 'x0.5', note: 'rent halved this round' }),
+  ipl: Object.freeze({ tone: 'star', text: 'x2', note: 'rent doubled this round' }),
+  metro_strike: Object.freeze({ tone: 'closed', text: 'closed', note: 'closed, pays no rent this round' }),
+  tax_holiday: Object.freeze({ tone: 'free', text: 'free', note: 'tax free this round' }),
+};
+
+/**
+ * What the active city event (`view.event`) does to this tile, as a stable descriptor, or null.
+ * monsoon / ipl hit every tile of `event.group`, metro_strike the stations, tax_holiday the tax squares;
+ * bonalu and no event mark nothing.
+ */
+export function eventMark(event, tile) {
+  if (!event || !tile) return null;
+  switch (event.id) {
+    case 'monsoon':
+      return event.group && tile.group === event.group ? MARKS.monsoon : null;
+    case 'ipl':
+      return event.group && tile.group === event.group ? MARKS.ipl : null;
+    case 'metro_strike':
+      return tile.type === 'transport' ? MARKS.metro_strike : null;
+    case 'tax_holiday':
+      return tile.type === 'tax' ? MARKS.tax_holiday : null;
+    default:
+      return null;
+  }
 }
 
-function inkFor(hex) {
-  const m = /^#?([0-9a-f]{6})$/i.exec(hex || '');
-  if (!m) return '#ffffff';
-  const n = parseInt(m[1], 16);
-  const lin = (c) => {
-    const v = c / 255;
-    return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
-  };
-  const L = 0.2126 * lin((n >> 16) & 255) + 0.7152 * lin((n >> 8) & 255) + 0.0722 * lin(n & 255);
-  return L > 0.42 ? '#1b1340' : '#ffffff';
-}
+const EventIcon = ({ tone }) =>
+  tone === 'rain' ? (
+    <svg viewBox="0 0 24 24" focusable="false">
+      <path d="M12 2.5C9 7.4 6.5 10.4 6.5 14a5.5 5.5 0 0 0 11 0c0-3.6-2.5-6.6-5.5-11.5z" />
+    </svg>
+  ) : tone === 'star' ? (
+    <svg viewBox="0 0 24 24" focusable="false">
+      <path d="m12 2.6 2.9 6 6.6.9-4.8 4.6 1.2 6.5L12 17.4l-5.9 3.2 1.2-6.5L2.5 9.5l6.6-.9z" />
+    </svg>
+  ) : null;
 
-// Clockwise from START: 0 bottom-left, 7 top-left, 14 top-right, 21 bottom-right (see tilePosition).
-const CORNER_CLASS = { 0: 'hb-tile--bl', 7: 'hb-tile--tl', 14: 'hb-tile--tr', 21: 'hb-tile--br' };
-
-/** Levels 1..MAX_LEVEL-1 are a tiny skyline of pips; MAX_LEVEL is the gold hotel badge. */
+/** Levels 1..MAX_LEVEL-1 are little houses; MAX_LEVEL is a single red hotel, as on a real board. */
 function Pips({ level }) {
+  if (level >= MAX_LEVEL) return <span className="hb-pips is-hotel" aria-hidden="true"><i /></span>;
   return (
     <span className="hb-pips" aria-hidden="true">
       {Array.from({ length: Math.min(level, MAX_LEVEL - 1) }, (_, i) => (
-        <i key={i} style={{ '--k': i }} />
+        <i key={i} />
       ))}
-    </span>
-  );
-}
-
-function HotelBadge() {
-  return (
-    <span className="hb-hotel" aria-hidden="true">
-      <svg viewBox="2 7 20 16" focusable="false">
-        <path d="M5 22V11.5h14V22z" fill="#7a4a00" />
-        <path d="M3.6 11.8L12 8.6l8.4 3.2z" fill="#a8680a" />
-        <g fill="#ffe9a0">
-          <rect x="7" y="13.4" width="2.3" height="2.3" rx=".4" />
-          <rect x="10.85" y="13.4" width="2.3" height="2.3" rx=".4" />
-          <rect x="14.7" y="13.4" width="2.3" height="2.3" rx=".4" />
-          <rect x="7" y="17.2" width="2.3" height="2.3" rx=".4" />
-          <rect x="14.7" y="17.2" width="2.3" height="2.3" rx=".4" />
-        </g>
-        <rect x="10.4" y="17.4" width="3.2" height="4.6" rx=".5" fill="#ffd36a" />
-      </svg>
     </span>
   );
 }
@@ -101,8 +122,11 @@ function HotelBadge() {
 /**
  * One board tile. Pure/primitive props so React.memo can skip untouched tiles.
  *  ownerColor: hex or null. level: 0..MAX_LEVEL. active: the mover is standing here.
- *  setState: 'none' | 'partial' (owner holds 2 of a 3-tile colour) | 'full' (whole colour).
+ *  setState: 'none' | 'full' (the owner holds the whole colour: glow ring).
  *  mortgaged: greyed out with stripes and an M badge, no set glow.
+ *  snatch: this tile is contested in the open snatch window (pulsing ring + lightning badge).
+ *  trap: the viewer has a (secret) trap here: small amber warning badge.
+ *  event: null or the frozen descriptor from eventMark() (ring + badge in the event's colour).
  */
 function TileImpl({
   tile,
@@ -111,56 +135,72 @@ function TileImpl({
   level = 0,
   setState = 'none',
   mortgaged = false,
+  snatch = false,
+  event = null,
+  trap = false,
   highlight = false,
   active = false,
   onSelect,
 }) {
-  const { col, row } = tilePosition(tile.id);
+  const side = tileSide(tile.id);
   const group = tile.group ? GROUPS[tile.group] : null;
   const owned = !!ownerColor;
   const buyable = tile.price != null;
   const isProperty = tile.type === 'property';
   const hotel = isProperty && owned && level >= MAX_LEVEL;
-  const set = mortgaged ? 'none' : setState;
+  const built = isProperty && owned && level > 0;
+  const full = !mortgaged && setState === 'full';
 
+  const { col, row } = tilePosition(tile.id);
   const style = { gridColumn: col + 1, gridRow: row + 1 };
   if (group) {
     style['--g'] = group.color;
     style['--gi'] = group.ink;
   }
-  if (owned) {
-    style['--o'] = ownerColor;
-    style['--oi'] = inkFor(ownerColor);
-  }
+  if (owned) style['--o'] = ownerColor;
 
-  const cls = ['hb-tile', `hb-tile--${tile.type}`];
+  const cls = ['hb-tile', `hb-tile--${tile.type}`, `hb-side--${side}`];
   if (tile.corner) cls.push('hb-tile--corner', CORNER_CLASS[tile.id] || '');
-  else if (buyable) cls.push('hb-tile--buy');
-  else cls.push('hb-tile--plain');
+  if (tile.type === 'kismet') cls.push(`hb-tile--${tile.deck}`);
   if (owned) cls.push('is-owned');
-  if (set === 'full') cls.push('is-set');
-  if (set === 'partial') cls.push('is-partial');
+  if (full) cls.push('is-set');
   if (mortgaged) cls.push('is-mortgaged');
   if (hotel) cls.push('is-hotel');
-  const built = isProperty && owned && level > 0;
+  if (snatch) cls.push('is-snatch');
+  if (trap) cls.push('has-trap');
+  if (event) cls.push('is-event', `is-ev--${event.tone}`);
   if (built) cls.push('is-built');
   if (highlight) cls.push('is-hl');
   if (active) cls.push('is-active');
 
+  const amount =
+    tile.type === 'tax' ? (
+      <>
+        {formatINR(tile.taxFlat)}
+        {tile.taxPercent ? <span className="hb-tile__or"> or {tile.taxPercent}%</span> : null}
+      </>
+    ) : null;
+
   const label = [tile.name];
-  if (buyable) label.push(formatINR(tile.price));
-  if (buyable) label.push(owned ? `owned by ${ownerName || 'a player'}` : 'for sale');
+  if (buyable) label.push(formatINR(tile.price), owned ? `owned by ${ownerName || 'a player'}` : 'for sale');
+  if (tile.type === 'tax') label.push(`pay ${formatINR(tile.taxFlat)}${tile.taxPercent ? ` or ${tile.taxPercent}% of your worth, whichever is less` : ''}`);
+  if (tile.type === 'start') label.push(`collect ${formatINR(PASS_START)}`);
   if (mortgaged) label.push('mortgaged');
   if (isProperty && level > 0) label.push(LEVEL_NAMES[level] || `level ${level}`);
-  if (set === 'full') label.push('full colour set');
-  if (set === 'partial') label.push('two of three in the colour set');
+  if (full) label.push('full colour set');
+  if (snatch) label.push('snatch window open');
+  if (event) label.push(event.note);
+  if (trap) label.push('your trap');
 
-  const iconTile = !isProperty && !tile.corner;
-  const name = iconTile ? ICON_LABELS[tile.short] || tile.short : softName(tile.short);
-  const fs = iconTile ? fitSize(name, 2.6, 2.0, true) : fitSize(name);
-  const nameStyle = { '--fs': `${fs.toFixed(2)}cqw` };
-  // a built tile has pips/badge under the name: two-line names get a compact, top-aligned layout
-  if (built && (name.includes(' ') || name.includes(SHY))) cls.push('is-multi');
+  // the short name is on the tile; the full one is in the tooltip, the accessible name and the sheet
+  const name = softName(tile.short);
+
+  // "M" badge: sits in the colour band of a property, in the corner of any other tile
+  const mBadge = (
+    <span className="hb-tile__m" aria-hidden="true">
+      M
+    </span>
+  );
 
   let inner;
   if (tile.corner) {
@@ -170,60 +210,68 @@ function TileImpl({
           <TileIcon tile={tile} size={64} />
         </span>
         <span className="hb-pill">{tile.short}</span>
+        <span className="hb-tile__sub">{CORNER_SUB[tile.type]}</span>
       </>
     );
   } else if (isProperty) {
     inner = (
       <>
-        <span className="hb-tile__head">
-          <span className="hb-tile__price">{compactINR(tile.price)}</span>
-        </span>
+        <span className="hb-tile__band">{mortgaged ? mBadge : built && <Pips level={level} />}</span>
         <span className="hb-tile__body">
-          <span className="hb-tile__name" style={nameStyle}>
-            {name}
-          </span>
-          {owned && level > 0 && (hotel ? <HotelBadge /> : <Pips level={level} />)}
+          <span className="hb-tile__name">{name}</span>
+          <span className="hb-tile__price">{formatINR(tile.price)}</span>
         </span>
       </>
     );
-  } else if (buyable) {
+  } else if (tile.type === 'kismet') {
+    // a card back: tinted face, pattern frame, the deck's symbol and its name
     inner = (
-      <>
-        <span className="hb-tile__head">
-          <span className="hb-tile__price">{compactINR(tile.price)}</span>
+      <span className="hb-tile__card">
+        <span className="hb-tile__icon">
+          <TileIcon tile={tile} size={48} />
         </span>
-        <span className="hb-tile__body">
-          <span className="hb-tile__icon">
-            <TileIcon tile={tile} size={48} />
-          </span>
-          <span className="hb-tile__name hb-tile__name--sm" style={nameStyle}>
-            {name}
-          </span>
-        </span>
-      </>
+        <span className="hb-tile__name">{name}</span>
+      </span>
     );
   } else {
+    // station / utility / tax: the icon, then the name and the price (or tax amount) beside or under it
     inner = (
-      <>
-        <span className="hb-tile__bar" />
-        <span className="hb-tile__body">
-          <span className="hb-tile__icon hb-tile__icon--lg">
-            <TileIcon tile={tile} size={64} />
-          </span>
-          <span className="hb-tile__name hb-tile__name--sm" style={nameStyle}>
-            {name}
-          </span>
+      <span className="hb-tile__body hb-tile__body--icon">
+        <span className="hb-tile__icon">
+          <TileIcon tile={tile} size={48} />
         </span>
-      </>
+        <span className="hb-tile__txt">
+          <span className="hb-tile__name">{name}</span>
+          <span className="hb-tile__price">{buyable ? formatINR(tile.price) : amount}</span>
+        </span>
+      </span>
     );
   }
 
   return (
-    <button type="button" className={cls.join(' ')} style={style} aria-label={label.join(', ')} title={tile.name} data-tile={tile.id} onClick={() => onSelect?.(tile.id)}>
+    <button type="button" className={cls.join(' ')} style={style} aria-label={label.join(', ')} title={[tile.name, event && event.note, trap && 'your trap'].filter(Boolean).join(' - ')} data-tile={tile.id} onClick={() => onSelect?.(tile.id)}>
       {inner}
-      {mortgaged && (
-        <span className="hb-tile__m" aria-hidden="true">
-          M
+      {event?.tone === 'closed' && <i className="hb-tile__evx" aria-hidden="true" />}
+      {trap && (
+        <span className="hb-tile__trap" aria-hidden="true">
+          <svg viewBox="0 0 24 24" focusable="false">
+            <path d="M12 3.2 22 20.5H2zM11 9.5h2v6h-2zM11 16.6h2v2h-2z" />
+          </svg>
+        </span>
+      )}
+      {event && (
+        <span className="hb-tile__ev" aria-hidden="true">
+          <EventIcon tone={event.tone} />
+          <b className="hb-tile__ev-t">{event.text}</b>
+        </span>
+      )}
+      {owned && <i className="hb-tile__own" aria-hidden="true" />}
+      {mortgaged && !isProperty && mBadge}
+      {snatch && (
+        <span className="hb-tile__snatch" aria-hidden="true">
+          <svg viewBox="0 0 24 24" focusable="false">
+            <path d="M13.5 2 5 13.5h5.6L9.6 22 19 9.8h-5.7z" />
+          </svg>
         </span>
       )}
     </button>

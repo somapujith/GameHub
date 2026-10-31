@@ -1,10 +1,9 @@
-// Game over: confetti (CSS only), podium, headline, reason, stats, rewards, Play again / Home.
+// Game over: confetti (CSS only), podium, headline, reason, stats, Play again / Home.
 import { Avatar } from '@/components/art/index.js';
 import { formatINR } from '@shared/format.js';
 import Sheet from './ui/Sheet.jsx';
 import Button from './ui/Button.jsx';
 import Icon from './ui/Icon.jsx';
-import Pill from './ui/Pill.jsx';
 import Confetti from './ui/Confetti.jsx';
 import { ordinal, useHeld } from './ui/helpers.js';
 
@@ -17,7 +16,7 @@ function reasonLine(result, goal) {
   }
 }
 
-export default function GameOverModal({ session, onExit, rewards }) {
+export default function GameOverModal({ session, onExit }) {
   const result = useHeld(session.result);
   const open = !!session.result;
   const goal = session.display?.goal ?? session.view?.cfg?.goal ?? 0;
@@ -77,14 +76,6 @@ export default function GameOverModal({ session, onExit, rewards }) {
           <div><dt>Rent earned</dt><dd>{formatINR(result.me?.rentEarned ?? 0)}</dd></div>
           <div><dt>Properties</dt><dd>{result.me?.propertiesBought ?? 0}</dd></div>
         </dl>
-
-        {rewards ? (
-          <div className="hg-rewards" aria-label="Rewards">
-            <Pill tone="gold" icon={<Icon name="spark" size={14} />}>+{rewards.xpGained ?? 0} XP</Pill>
-            <Pill tone="gold" icon={<Icon name="coin" size={14} />}>+{rewards.coinsGained ?? 0} coins</Pill>
-            {rewards.leveledUp ? <Pill tone="good" pulse>Level up{rewards.level ? `! Lv ${rewards.level}` : '!'}</Pill> : null}
-          </div>
-        ) : null}
       </>
     );
   }

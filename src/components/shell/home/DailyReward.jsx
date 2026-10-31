@@ -3,7 +3,7 @@ import { CoinIcon, Icon } from '../icons.jsx';
 import { fmtNum } from '../ui.jsx';
 import { claimDaily, dailyRewardFor, todayKey, useProfile } from '../stores.js';
 import { useReducedMotion } from '../hooks.js';
-import { playSfx } from '../audio.js';
+import { playSfx } from '../sound.js';
 import { useToast } from '../Toast.jsx';
 
 function yesterdayKey() {

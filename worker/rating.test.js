@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { ratingDeltas, expectedScore, applyDelta, RATING_FLOOR, RATING_K, BOT_RATING } from './rating.js';
+import { ratingDeltas, expectedScore, applyDelta, RATING_FLOOR, RATING_K } from './rating.js';
 
-const seats = (...rows) => rows.map(([id, rank, rating, isBot]) => ({ id, rank, rating, isBot }));
+const seats = (...rows) => rows.map(([id, rank, rating]) => ({ id, rank, rating }));
 
 describe('rating (Elo-style, K=24, floor 100)', () => {
   it('equal ratings: the winner of a duel gains K/2, the loser loses it', () => {
@@ -9,7 +9,7 @@ describe('rating (Elo-style, K=24, floor 100)', () => {
     expect(RATING_K).toBe(24);
   });
 
-  it('is (almost) zero-sum between equally rated humans, ordered by rank', () => {
+  it('is (almost) zero-sum between equally rated players, ordered by rank', () => {
     const d = ratingDeltas(seats(['a', 1, 1000], ['b', 2, 1000], ['c', 3, 1000], ['d', 4, 1000]));
     expect(d).toEqual({ a: 12, b: 4, c: -4, d: -12 });
     expect(Object.values(d).reduce((x, y) => x + y, 0)).toBe(0);
@@ -23,10 +23,10 @@ describe('rating (Elo-style, K=24, floor 100)', () => {
     expect(up).toBeLessThanOrEqual(RATING_K);
   });
 
-  it('bots are opponents rated 1000 and never get a delta', () => {
-    const d = ratingDeltas(seats(['h', 1, 1000], ['bot_1', 2, undefined, true], ['bot_2', 3, undefined, true]));
-    expect(Object.keys(d)).toEqual(['h']);
-    expect(d.h).toBe(Math.round(RATING_K * (1 - expectedScore(1000, BOT_RATING))));
+  it('every seat gets a delta, rated against the average of the others', () => {
+    const d = ratingDeltas(seats(['h', 1, 1100], ['p1', 2, 1000], ['p2', 3, 1000]));
+    expect(Object.keys(d)).toEqual(['h', 'p1', 'p2']);
+    expect(d.h).toBe(Math.round(RATING_K * (1 - expectedScore(1100, 1000))));
   });
 
   it('a missing rating counts as the starting 1000; a single seat changes nothing', () => {

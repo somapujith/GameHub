@@ -16,9 +16,11 @@ const BLANK = Object.freeze({
   debt: null,
   payDebt: false,
   useJailCard: false,
+  trap: false,
   trade: { canOffer: false },
   tradeOffer: null,
   tradeSent: null,
+  snatch: null, // { tile, ms } while the player may Snatch (`snatched: true` appears only after pressing)
   sets: [],
 });
 

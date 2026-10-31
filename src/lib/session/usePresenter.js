@@ -1,32 +1,30 @@
 // The presenter: replays engine events with timing (dice roll, pawn steps, cash changes, card
-// reveal, auction result...) on top of a `display` copy of the game state, fires sound effects and
-// voice lines, builds the centre-stage bubble and the log, then snaps `display` to the
-// authoritative state. Shared by the offline and online sessions.
+// reveal, auction result...) on top of a `display` copy of the game state, fires sound effects,
+// builds the centre-stage bubble and the log, then snaps `display` to the authoritative state.
+// Used by the online session.
 //
 //   usePresenter({ meId, initialState, speed = 1 }) ->
 //     { display, busy, rolling, bubble, stageTile, log, enqueue(events, newState), reset(state), isBusy() }
 //
 // `speed` multiplies every delay (relaxed 1.4, normal 1, fast 0.5). Playback also trims itself for
-// background bot activity (nothing the human needs to see) and speeds up when only bots are left.
-// Voice lines never hold up the queue: they start with their event and play over the next ones.
+// background activity (nothing the local player needs to see).
+//
+// The snatch window (docs/GAME_RULES.md 9) is REAL TIME: `snatch_open` only announces it and never waits, and
+// the UI reads the window from `session.view`, not from this presenter's delayed `display`.
 //
 // The playback logic lives in `createPresenterCore` (plain JS, no React) so it can be tested with fake
 // timers. The hook only subscribes React to the core's snapshots.
 
 import { useEffect, useMemo, useRef, useSyncExternalStore } from 'react';
-import { TILES, BOARD_SIZE, JAIL_TILE, MAX_LEVEL } from '@shared/board.js';
+import { BOARD_SIZE, JAIL_TILE, MAX_LEVEL } from '@shared/board.js';
 import { sfx } from '../sfx.js';
-import { voice } from '../voice.js';
-import { pickLine, lineForTile } from '../voiceLines.js';
-import { CARD_CLIPS } from '../cardClips.js';
+import { CARD_CLIPS, playCardClip } from '../cardClips.js';
 import { describeEvent } from '../messages.js';
 import { loadSettings } from '../storage.js';
 
 const LOG_CAP = 200;
-const BOT_VOICE_P = 0.4; // chance that something a bot did gets a voice line
-const BIG_RENT = 1500;
-const PREMIUM_PRICE = 3000;
-const DEFERRED_MAX_AGE = 4500; // a postponed flavour line is dropped if it would be this late
+
+const LONG_TRIP = 12; // a pawn move longer than this many squares hops faster so the whole trip stays short
 
 /** Base delays in ms (scaled down when reduced motion is on or the queue is backed up). */
 const T = {
@@ -47,6 +45,7 @@ const T = {
   card: 2200,
   auctionStart: 900,
   auctionEnd: 1500,
+  snatchEnd: 1100,
   bankrupt: 1300,
   round: 1000,
   finalRound: 1700,
@@ -55,10 +54,12 @@ const T = {
   mortgage: 650,
   trade: 800,
   debt: 1000,
+  cityEvent: 1200,
+  trap: 800,
 };
 
 /**
- * Pacing trims for "background" playback: bots acting while the human has nothing to decide.
+ * Pacing trims for "background" playback: other players acting while the local player has nothing to decide.
  * A multiplier on the base delay above (events missing here keep full length).
  */
 const QUICK = {
@@ -76,6 +77,7 @@ const QUICK = {
   jail: 0.7,
   jailStay: 0.7,
   card: 0.42,
+  snatchEnd: 0.6,
   round: 0.7,
   finalRound: 0.7,
   mortgage: 0.7,
@@ -85,8 +87,8 @@ const QUICK = {
 /** Events the human should always get to see at full pacing, whoever caused them. */
 const NEEDS_ATTENTION = new Set([
   'win', 'bankrupt', 'debt', 'set_complete',
-  'auction_start', 'auction_end',
-  'trade_offer', 'trade_done', 'trade_rejected',
+  'auction_start', 'auction_end', 'snatch_open', 'snatch_end',
+  'trade_offer', 'trade_done', 'trade_rejected', 'city_event', 'trap_sprung',
 ]);
 
 let uid = 0;
@@ -119,7 +121,7 @@ export function displayFromState(state) {
   if (!state || !Array.isArray(state.players)) {
     return {
       players: [], owners: [...EMPTY_OWNERS], levels: [...EMPTY_LEVELS], mortgaged: [...EMPTY_MORTGAGED], turn: 0, round: 1, dice: [0],
-      phase: 'roll', goal: 0, cfg: {}, winner: null, lastCash: null, assist: null, assistPlayer: null, debt: null, trade: null,
+      phase: 'roll', goal: 0, cfg: {}, winner: null, lastCash: null, assist: null, assistPlayer: null, debt: null, trade: null, event: null,
     };
   }
   return {
@@ -132,7 +134,9 @@ export function displayFromState(state) {
       pos: p.pos,
       jailTurns: p.jailTurns || 0,
       bankrupt: !!p.bankrupt,
-      isBot: !!p.isBot,
+      snatches: p.snatches ?? 0, // Snatch tokens left (public)
+      traps: p.traps ?? 0, // traps still in hand (public; where they are placed is secret)
+      laps: p.laps ?? 0, // times passed START (public; every 3rd earns a token)
     })),
     owners: Array.isArray(state.owners) ? state.owners.slice() : [...EMPTY_OWNERS],
     levels: Array.isArray(state.levels) ? state.levels.slice() : [...EMPTY_LEVELS],
@@ -149,6 +153,7 @@ export function displayFromState(state) {
     assistPlayer: null,
     debt: state.debt ? { ...state.debt } : null,
     trade: state.trade ? { ...state.trade } : null,
+    event: state.event ? { ...state.event } : null, // the city event of this round (public)
   };
 }
 
@@ -179,7 +184,7 @@ const clampSpeed = (v) => {
 };
 
 export function createPresenterCore({ meId, initialState, speed: speedOpt = 1, deps } = {}) {
-  const D = { sfx, voice, pickLine, lineForTile, describeEvent, loadSettings, random: Math.random, now: () => Date.now(), ...(deps || {}) };
+  const D = { sfx, playCardClip, describeEvent, loadSettings, ...(deps || {}) };
 
   let me = meId;
   let S = makeSnapshot(initialState);
@@ -191,8 +196,8 @@ export function createPresenterCore({ meId, initialState, speed: speedOpt = 1, d
   let disposed = false;
   let reducedNow = false;
   let speedMul = clampSpeed(speedOpt);
-  let quickNow = false; // the item being played is background bot activity (see QUICK)
-  let deferred = null; // a flavour voice line waiting for the current line to finish
+  let quickNow = false; // the item being played is background activity (see QUICK)
+  let itemEvents = []; // the events of the item being played (lets a buy see that a snatch window follows it)
   const timers = new Set();
 
   // ---- store plumbing ----
@@ -248,35 +253,28 @@ export function createPresenterCore({ meId, initialState, speed: speedOpt = 1, d
   const waiting = () => Math.max(0, pending - 1);
   /** True when more than 3 enqueues are queued behind the one playing: hurry up and stay quiet. */
   const backedUp = () => waiting() > 3;
-  /** Nobody who can still decide anything is human: only bots (and bankrupt players) are left. */
-  function botsOnly() {
-    const ps = S.display.players;
-    return ps.length > 0 && ps.every((p) => p.bankrupt || p.isBot);
-  }
   /** Overall delay multiplier: user speed setting, then catch-up and reduced-motion limits. */
   function speed() {
     const w = waiting();
     let f = speedMul;
-    if (botsOnly()) f *= 0.5;
     if (w > 8) f = Math.min(f, 0.05);
     else if (w > 3) f = Math.min(f, 0.3);
     if (reducedNow) f = Math.min(f, 0.35);
     return f;
   }
-  /** Base delay for `name`, trimmed when the item being played is background bot activity. */
+  /** Base delay for `name`, trimmed when the item being played is background activity. */
   const dl = (name) => T[name] * (quickNow ? QUICK[name] ?? 1 : 1);
-  /** An item is "quick" when it does not involve the human and nothing in it needs their eyes. */
+  /** An item is "quick" when it does not involve the local player and nothing in it needs their eyes. */
   function computeQuick(events) {
-    if (botsOnly()) return true;
     for (const ev of events) {
       if (!ev) continue;
       if (NEEDS_ATTENTION.has(ev.type)) return false;
-      if (ev.player === me || ev.other === me || ev.owner === me || ev.winner === me || ev.from === me || ev.to === me) return false;
+      if (ev.player === me || ev.other === me || ev.owner === me || ev.winner === me || ev.from === me || ev.to === me || ev.buyer === me) return false;
     }
     return true;
   }
 
-  // ---- sound and voice ----
+  // ---- sound ----
   const fx = (name) => {
     if (disposed || backedUp()) return;
     try {
@@ -286,77 +284,13 @@ export function createPresenterCore({ meId, initialState, speed: speedOpt = 1, d
     }
   };
 
-  function speakNow(line, priority) {
-    try {
-      const p = D.voice.speak(line, { priority });
-      if (p && typeof p.catch === 'function') p.catch(() => {});
-    } catch {
-      /* ignore */
-    }
-  }
-
-  /** Flavour line for the local player: wait for the current line to end instead of being dropped. */
-  function speakOrDefer(line) {
-    let speaking = false;
-    try {
-      speaking = !!(D.voice.isSpeaking && D.voice.isSpeaking());
-    } catch {
-      /* ignore */
-    }
-    if (!speaking) {
-      speakNow(line, 'normal');
-      return;
-    }
-    const mine = { line, at: D.now() };
-    deferred = mine;
-    let idle;
-    try {
-      idle = D.voice.whenIdle ? D.voice.whenIdle() : Promise.resolve();
-    } catch {
-      return;
-    }
-    idle.then(() => {
-      if (deferred !== mine || disposed) return;
-      deferred = null;
-      if (D.now() - mine.at > DEFERRED_MAX_AGE) return;
-      speakNow(mine.line, 'normal');
-    });
-  }
-
-  /** Voice line for a trigger. Local-player events always speak, bot events ~40% of the time. */
-  function say(trigger, involvesMe) {
-    if (disposed || backedUp()) return;
-    try {
-      if (!involvesMe && D.random() >= BOT_VOICE_P) return;
-      const line = D.pickLine(trigger);
-      if (!line) return;
-      if (involvesMe) speakOrDefer(line);
-      else speakNow(line, 'low');
-    } catch {
-      /* ignore */
-    }
-  }
-
-  /** Tile line when somebody lands: always the priority line for the local player. */
-  function sayTile(tile, byMe) {
-    if (disposed || backedUp()) return;
-    try {
-      if (!byMe && D.random() >= BOT_VOICE_P) return;
-      const line = D.lineForTile(tile);
-      if (!line) return;
-      deferred = null;
-      speakNow(line, byMe ? 'high' : 'normal');
-    } catch {
-      /* ignore */
-    }
-  }
-
   // ---- bubble and log ----
   const playerOf = (ev) => {
     if (ev.player !== undefined && ev.player !== null) return ev.player;
     if (ev.owner !== undefined && ev.owner !== null) return ev.owner;
     if (ev.winner !== undefined && ev.winner !== null) return ev.winner;
     if (ev.from !== undefined && ev.from !== null) return ev.from; // trades
+    if (ev.buyer !== undefined && ev.buyer !== null) return ev.buyer; // snatch
     if (ev.tile !== undefined) return S.display.owners[ev.tile] ?? undefined;
     return undefined;
   };
@@ -371,6 +305,7 @@ export function createPresenterCore({ meId, initialState, speed: speedOpt = 1, d
       round: dsp.round,
       maxRounds: dsp.cfg ? dsp.cfg.maxRounds ?? null : null,
       jailTurns: dsp.cfg ? dsp.cfg.jailTurns : undefined,
+      tile: S.stageTile, // the square being played (a tax payment follows its 'land' event)
     });
     if (!d) return null;
     const patch = {};
@@ -391,7 +326,7 @@ export function createPresenterCore({ meId, initialState, speed: speedOpt = 1, d
         tile: d.tile !== undefined ? d.tile : ev.tile,
         icon: d.icon,
         type: ev.type,
-        ...(ev.type === 'card' ? { card: { title: ev.title, text: ev.text, kind: ev.kind } } : null),
+        ...(ev.type === 'card' ? { card: { title: ev.title, text: ev.text, kind: ev.kind, deck: ev.deck } } : null),
       };
     }
     commit(patch);
@@ -403,7 +338,6 @@ export function createPresenterCore({ meId, initialState, speed: speedOpt = 1, d
   async function playEvent(ev, wait) {
     const dsp = S.display;
     const byMe = ev.player === me;
-    const involvesMe = byMe || ev.other === me;
 
     switch (ev.type) {
       case 'dice': {
@@ -411,7 +345,6 @@ export function createPresenterCore({ meId, initialState, speed: speedOpt = 1, d
         fx('dice');
         if (!(await wait(dl('dice')))) return false;
         const values = ev.values || [1];
-        const [a, b] = values;
         const assist = ev.assist || null;
         // Keep the landing transition inside the presenter pause, including fast/catch-up play.
         const diceSettleMs = reducedNow ? 0 : Math.max(0, Math.min(560, dl('afterDice') * speed() - 32));
@@ -420,17 +353,7 @@ export function createPresenterCore({ meId, initialState, speed: speedOpt = 1, d
         announce(ev);
         if (assist && byMe) {
           fx('lucky');
-          // flavour only: low priority, and not every time
-          if (!backedUp() && D.random() < BOT_VOICE_P) {
-            try {
-              const line = D.pickLine('lucky_dice');
-              if (line) speakNow(line, 'low');
-            } catch {
-              /* ignore */
-            }
-          }
         }
-        if (values.length === 2 && a === b) say('doubles', byMe);
         return wait(dl('afterDice'));
       }
 
@@ -448,14 +371,16 @@ export function createPresenterCore({ meId, initialState, speed: speedOpt = 1, d
           if (ev.teleport) announce(ev);
           return wait(dl('teleport'));
         }
+        // The 40-square ring allows long trips (a card can send you across the board): hop faster on those.
+        const stepScale = Math.max(0.3, Math.min(1, LONG_TRIP / path.length));
         for (const tile of path) {
           patchDisplay((d) => ({
             ...d,
-            stepMs: Math.round(dl('step') * speed()),
+            stepMs: Math.round(dl('step') * stepScale * speed()),
             players: d.players.map((p) => (p.id === ev.player ? { ...p, pos: tile } : p)),
           }));
           fx('step');
-          if (!(await wait(dl('step')))) return false;
+          if (!(await wait(dl('step') * stepScale))) return false;
         }
         const p = S.display.players.find((x) => x.id === ev.player);
         if (p && p.pos !== ev.to && Number.isInteger(ev.to)) setPos(ev.player, ev.to);
@@ -465,7 +390,6 @@ export function createPresenterCore({ meId, initialState, speed: speedOpt = 1, d
       case 'land': {
         commit({ stageTile: ev.tile });
         announce(ev);
-        sayTile(ev.tile, byMe);
         return wait(dl('land'));
       }
 
@@ -480,9 +404,8 @@ export function createPresenterCore({ meId, initialState, speed: speedOpt = 1, d
         let sound = null;
         switch (ev.reason) {
           case 'salary':
-          case 'film':
           case 'liquidate':
-          case 'bazaar':
+          case 'event':
             sound = 'coin';
             break;
           case 'rent':
@@ -498,23 +421,14 @@ export function createPresenterCore({ meId, initialState, speed: speedOpt = 1, d
         }
         if (sound) fx(sound);
 
-        if (ev.reason === 'salary') say('pass_start', byMe);
-        else if (ev.reason === 'tax') say('tax', byMe);
-        else if (ev.reason === 'film') say('film', byMe);
-        else if (ev.reason === 'rent' && delta < 0) {
-          // Only the paying half speaks; the receiving half repeats the same rent.
-          const big = Math.abs(delta) >= BIG_RENT;
-          if (big) say('rent_big', involvesMe);
-          else if (byMe) say('rent_pay', true);
-          else if (ev.other === me) say('rent_receive', true);
-        }
-
         if (ev.reason === 'rent') return wait(delta < 0 ? dl('rentOut') : dl('rentIn'));
         return wait(d ? dl('cash') : dl('quiet'));
       }
 
       case 'own': {
-        announce(ev); // before the change, so liquidations can name the previous owner
+        // A buy that opens a snatch window is logged once, by the snatch_open line that follows it.
+        const windowFollows = ev.reason === 'buy' && itemEvents.some((e) => e && e.type === 'snatch_open' && e.tile === ev.tile);
+        if (!windowFollows) announce(ev); // before the change, so liquidations can name the previous owner
         patchDisplay((d) => ({
           ...d,
           owners: setAt(d.owners, ev.tile, ev.owner ?? null),
@@ -523,26 +437,20 @@ export function createPresenterCore({ meId, initialState, speed: speedOpt = 1, d
         }));
         if (ev.reason === 'buy' || ev.reason === 'auction') {
           fx('buy');
-          if (ev.reason === 'buy') {
-            const price = TILES[ev.tile] ? TILES[ev.tile].price || 0 : 0;
-            say(price >= PREMIUM_PRICE ? 'buy_premium' : 'buy', ev.owner === me);
-          }
           return wait(dl('own'));
         }
+        if (ev.reason === 'snatch') return wait(dl('own')); // snatch_end made the sound
         if (ev.reason === 'liquidate') fx('coin');
         return wait(ev.reason === 'liquidate' ? dl('cash') : dl('quiet'));
       }
 
       case 'level': {
-        const owner = dsp.owners[ev.tile];
         announce(ev);
         patchDisplay((d) => ({ ...d, levels: setAt(d.levels, ev.tile, ev.level) }));
         if (ev.reason === 'upgrade') {
           commit({ stageTile: ev.tile });
           const hotel = ev.level >= MAX_LEVEL;
           fx(hotel ? 'hotel' : 'upgrade');
-          // Hotel -> upgrade_hotel, the level just below it (the Tower) -> upgrade_tower
-          say(hotel ? 'upgrade_hotel' : ev.level === MAX_LEVEL - 1 ? 'upgrade_tower' : 'upgrade', owner === me);
           return wait(hotel ? dl('level') * 1.5 : dl('level'));
         }
         if (ev.reason === 'sell') {
@@ -555,7 +463,6 @@ export function createPresenterCore({ meId, initialState, speed: speedOpt = 1, d
       case 'set_complete': {
         announce(ev);
         fx(byMe ? 'cheer' : 'click');
-        say('set_complete', byMe);
         return wait(dl('setComplete'));
       }
 
@@ -563,7 +470,6 @@ export function createPresenterCore({ meId, initialState, speed: speedOpt = 1, d
         patchDisplay((d) => ({ ...d, mortgaged: setAt(d.mortgaged, ev.tile, true) }));
         announce(ev);
         fx('mortgage');
-        say('mortgage', byMe);
         return wait(dl('mortgage'));
       }
 
@@ -585,7 +491,6 @@ export function createPresenterCore({ meId, initialState, speed: speedOpt = 1, d
         patchDisplay((d) => ({ ...d, trade: null }));
         announce(ev);
         fx('trade');
-        say('trade_done', ev.from === me || ev.to === me);
         return wait(dl('trade'));
       }
 
@@ -611,7 +516,6 @@ export function createPresenterCore({ meId, initialState, speed: speedOpt = 1, d
           fx('jail');
         }
         announce(ev);
-        say(ev.jailed ? 'jail' : 'jail_free', byMe);
         return wait(dl('jail'));
       }
 
@@ -626,22 +530,80 @@ export function createPresenterCore({ meId, initialState, speed: speedOpt = 1, d
       case 'card': {
         fx('card');
         announce(ev);
-        const clip = CARD_CLIPS[ev.cardId];
-        if (clip && !byMe && !disposed) {
-          // A recorded clip for this card: the players who get paid hear it, the one who drew it does not.
-          deferred = null;
-          speakNow(clip, 'high');
-        } else if (ev.kind === 'good') say('card_good', byMe);
-        else if (ev.kind === 'bad') say('card_bad', byMe);
+        // A recorded clip for this card: the players who get paid hear it, the one who drew it does not.
+        if (CARD_CLIPS[ev.cardId] && !byMe && !disposed && !backedUp()) {
+          try {
+            D.playCardClip(ev.cardId);
+          } catch {
+            /* ignore */
+          }
+        }
         return wait(dl('card'));
+      }
+
+      case 'snatch_open': {
+        commit({ stageTile: ev.tile });
+        announce(ev);
+        fx(Array.isArray(ev.eligible) && ev.eligible.includes(me) ? 'lucky' : 'click');
+        return true; // no delay: the window runs in real time from the moment the state arrived
+      }
+
+      case 'snatch_end': {
+        commit({ stageTile: ev.tile });
+        announce(ev);
+        if (ev.outcome === 'snatched') fx(ev.winner === me ? 'cheer' : ev.buyer === me ? 'error' : 'click');
+        else if (ev.outcome === 'bidding') fx('click');
+        return wait(ev.outcome === 'none' ? dl('cash') : dl('snatchEnd'));
+      }
+
+      case 'shield': {
+        // No delay: a shield only skips the snatch window, nothing to wait for.
+        announce(ev);
+        fx('click');
+        return true;
+      }
+
+      case 'trap_placed': {
+        // No delay, and no tile: placing is secret. The count in hand drops for everybody.
+        patchPlayer(ev.player, (p) => ({ traps: Math.max(0, (p.traps || 0) - 1) }));
+        announce(ev);
+        fx(ev.player === me ? 'click' : 'error');
+        return true;
+      }
+
+      case 'trap_sprung': {
+        commit({ stageTile: ev.tile });
+        announce(ev);
+        fx(ev.victim === me ? 'jail' : ev.owner === me ? 'cheer' : 'error');
+        return wait(dl('trap'));
+      }
+
+      case 'token_earned': {
+        patchPlayer(ev.player, () => ({ snatches: Math.max(0, Number(ev.snatches) || 0) }));
+        announce(ev);
+        if (ev.player === me) fx('lucky');
+        return true;
+      }
+
+      case 'city_event': {
+        patchDisplay((d) => ({
+          ...d,
+          event: { id: ev.id, title: ev.title, text: ev.text, kind: ev.kind, group: ev.group, mult: ev.mult, amount: ev.amount, round: ev.round },
+        }));
+        announce(ev);
+        fx(ev.kind === 'bad' ? 'error' : 'card');
+        return wait(dl('cityEvent'));
+      }
+
+      case 'snatch_token': {
+        patchPlayer(ev.player, () => ({ snatches: Math.max(0, Number(ev.snatches) || 0) }));
+        return wait(dl('quiet'));
       }
 
       case 'auction_start': {
         commit({ stageTile: ev.tile });
         announce(ev);
         fx('click');
-        const turnPlayer = dsp.players[dsp.turn];
-        say('auction_start', !!turnPlayer && turnPlayer.id === me);
         return wait(dl('auctionStart'));
       }
 
@@ -649,9 +611,6 @@ export function createPresenterCore({ meId, initialState, speed: speedOpt = 1, d
         announce(ev);
         const hasWinner = ev.winner !== null && ev.winner !== undefined;
         fx(hasWinner ? 'buy' : 'click');
-        const meIn = dsp.players.some((p) => p.id === me && !p.bankrupt);
-        if (ev.winner === me) say('auction_win', true);
-        else if (hasWinner && meIn) say('auction_lose', true);
         return wait(dl('auctionEnd'));
       }
 
@@ -659,14 +618,19 @@ export function createPresenterCore({ meId, initialState, speed: speedOpt = 1, d
         patchPlayer(ev.player, () => ({ bankrupt: true, cash: 0, jailTurns: 0 }));
         announce(ev);
         fx(byMe ? 'lose' : 'error');
-        say('bankrupt', byMe);
         return wait(dl('bankrupt'));
       }
 
       case 'turn': {
         const idx = dsp.players.findIndex((p) => p.id === ev.player);
         const d = announce(ev); // null unless the round changes (quiet per-turn)
-        patchDisplay((x) => ({ ...x, turn: idx >= 0 ? idx : x.turn, round: ev.round ?? x.round }));
+        patchDisplay((x) => ({
+          ...x,
+          turn: idx >= 0 ? idx : x.turn,
+          round: ev.round ?? x.round,
+          // a city event lasts one round: drop it when a later round begins
+          event: x.event && ev.round !== undefined && x.event.round !== ev.round ? null : x.event,
+        }));
         if (!d) return wait(dl('quiet'));
         const max = dsp.cfg ? Number(dsp.cfg.maxRounds) : NaN;
         const final = Number.isFinite(max) && max > 0 && ev.round === max;
@@ -684,15 +648,6 @@ export function createPresenterCore({ meId, initialState, speed: speedOpt = 1, d
         } catch {
           /* ignore */
         }
-        try {
-          const line = D.pickLine(mine ? 'win_me' : 'win_other');
-          if (line) {
-            deferred = null;
-            speakNow(line, 'high');
-          }
-        } catch {
-          /* ignore */
-        }
         return wait(dl('win'));
       }
 
@@ -704,6 +659,7 @@ export function createPresenterCore({ meId, initialState, speed: speedOpt = 1, d
   async function playItem(events, myEpoch) {
     reducedNow = reducedMotion();
     quickNow = computeQuick(events);
+    itemEvents = events;
     const alive = () => epoch === myEpoch && !disposed;
     const wait = async (ms) => {
       await sleep(ms * speed());
@@ -760,12 +716,6 @@ export function createPresenterCore({ meId, initialState, speed: speedOpt = 1, d
     flushTimers();
     chain = Promise.resolve();
     pending = 0;
-    deferred = null;
-    try {
-      D.voice.stop();
-    } catch {
-      /* ignore */
-    }
     S = { ...makeSnapshot(state) };
     listeners.forEach((l) => l());
   }
@@ -776,12 +726,6 @@ export function createPresenterCore({ meId, initialState, speed: speedOpt = 1, d
     flushTimers();
     chain = Promise.resolve();
     pending = 0;
-    deferred = null;
-    try {
-      D.voice.stop();
-    } catch {
-      /* ignore */
-    }
   }
 
   function mount() {

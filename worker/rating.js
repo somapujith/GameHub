@@ -1,11 +1,10 @@
 // Per-game player rating: a deliberately simple Elo variant. Pure functions, no I/O.
 //
-// Formula (applied once per finished match, to every HUMAN player; bots are opponents with a
-// fixed rating and are never rated themselves):
+// Formula (applied once per finished match, to every player):
 //
-//   N        = number of seats in the match (humans + bots)
+//   N        = number of seats in the match
 //   actual   = (N - rank) / (N - 1)                      1 for the winner ... 0 for last place
-//   oppAvg   = average rating of the other N - 1 seats   (bots count as BOT_RATING)
+//   oppAvg   = average rating of the other N - 1 seats
 //   expected = 1 / (1 + 10 ^ ((oppAvg - own) / 400))     the classic Elo expectation
 //   delta    = round(K * (actual - expected))            K = 24
 //   rating'  = max(100, rating + delta)                  floor 100
@@ -15,7 +14,6 @@
 export const RATING_START = 1000;
 export const RATING_FLOOR = 100;
 export const RATING_K = 24;
-export const BOT_RATING = 1000;
 
 /** Elo expectation of a player rated `own` against opponents averaging `oppAvg`. */
 export const expectedScore = (own, oppAvg) => 1 / (1 + 10 ** ((oppAvg - own) / 400));
@@ -24,20 +22,19 @@ export const expectedScore = (own, oppAvg) => 1 / (1 + 10 ** ((oppAvg - own) / 4
 export const applyDelta = (rating, delta) => Math.max(RATING_FLOOR, Math.round(rating + delta));
 
 /**
- * Rating change for every human in a match.
- * `seats`: [{ id, rank, rating?, isBot? }] for ALL seats (rank 1 = best; ties share a rank).
- * Returns { [id]: delta } for the humans only. Fewer than two seats -> everyone gets 0.
+ * Rating change for every player in a match.
+ * `seats`: [{ id, rank, rating? }] for ALL seats (rank 1 = best; ties share a rank).
+ * Returns { [id]: delta } for every seat. Fewer than two seats -> everyone gets 0.
  */
 export function ratingDeltas(seats) {
   const out = {};
   const n = seats.length;
   const rated = seats.map((s) => ({
     ...s,
-    r: s.isBot ? BOT_RATING : Number.isFinite(s.rating) ? s.rating : RATING_START,
+    r: Number.isFinite(s.rating) ? s.rating : RATING_START,
   }));
   const sum = rated.reduce((a, s) => a + s.r, 0);
   for (const s of rated) {
-    if (s.isBot) continue;
     if (n < 2) {
       out[s.id] = 0;
       continue;
